@@ -14,12 +14,24 @@ import {
   tiffinTotal,
   buildVariableScope,
   outstandingAdvance,
+  advanceAdjustmentForMonth,
+  advanceRemaining,
   type SalaryBreakdown,
 } from '../services';
 
 /** Total tiffin CTC payable for an employee this month. */
 export function employeeTiffinTotal(employee: Employee): number {
   return tiffinTotal(employee.tiffin, employee.tiffinDays);
+}
+
+/** Advance recovered from this month's salary, per the repayment plan. */
+export function employeeAdvanceAdjustment(employee: Employee): number {
+  return advanceAdjustmentForMonth(employee.advances, CURRENT_MONTH.short);
+}
+
+/** Remaining advance balance after this month's recovery. */
+export function employeeAdvanceRemaining(employee: Employee): number {
+  return advanceRemaining(employee.advances, CURRENT_MONTH.short);
 }
 
 /** Full salary breakdown for an employee in the running month. */
@@ -34,6 +46,7 @@ export function employeeBreakdown(employee: Employee): SalaryBreakdown {
     status: employee.status,
     leaveUsed: employee.leaveUsed,
     tiffinTotal: employeeTiffinTotal(employee),
+    advanceAdjustment: employeeAdvanceAdjustment(employee),
   });
 }
 

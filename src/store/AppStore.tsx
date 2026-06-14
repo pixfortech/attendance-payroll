@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type Dispatch,
 import type {
   Advance,
   AttendanceRecord,
+  AuditEntry,
   Branch,
   BranchGeofence,
   ConfirmationStatus,
@@ -16,6 +17,7 @@ import type {
   ProofFactors,
   ProofMethod,
   QrRotation,
+  Session,
   TiffinLabel,
 } from '../types';
 import { BRANCHES, CHECKINS, EMPLOYEES, FORMULA_BLOCKS, NOTICES } from '../data';
@@ -32,6 +34,22 @@ const DEFAULT_TIFFIN_LABELS: TiffinLabel[] = [
   { id: 'tl-lunch', label: 'Lunch / Dinner', amount: 100 },
 ];
 
+/** Numeric employee fields an admin may override (with an audit entry). */
+export const OVERRIDE_FIELDS = {
+  salary: 'Monthly salary',
+  worked: 'Worked days',
+  leaveUsed: 'Leave used',
+  daysPresent: 'Days present',
+  daysAbsent: 'Days absent',
+  daysHalf: 'Half days',
+  tiffinDays: 'Tiffin days',
+  bonusAmount: 'Bonus amount',
+  overtimeHours: 'Overtime hours',
+} as const;
+export type OverrideField = keyof typeof OVERRIDE_FIELDS;
+
+const DEFAULT_SESSION: Session = { role: 'admin', name: 'Indrajit Pal' };
+
 interface AppContextValue {
   employees: Employee[];
   branches: Branch[];
@@ -40,9 +58,19 @@ interface AppContextValue {
   checkins: AttendanceRecord[];
   attendanceMarks: Record<string, Mark[]>;
   tiffinLabels: TiffinLabel[];
+  session: Session;
+  auditLog: AuditEntry[];
 
   getEmployee: (id: string) => Employee | undefined;
   getBranch: (id: string) => Branch | undefined;
+
+  /* Session & audit */
+  setSession: (session: Session) => void;
+  logAudit: (entry: Omit<AuditEntry, 'id' | 'at' | 'by'>) => void;
+  overrideEmployeeField: (employeeId: string, field: OverrideField, newValue: number, reason: string) => void;
+
+  /* Bulk attendance */
+  bulkMark: (employeeIds: string[], dayIndex: number, mark: Mark) => void;
 
   /* Employees */
   addEmployee: (input: { name: string; branch: string; role: string; salary: number; basis: Employee['basis']; joined: string; phone?: string; email?: string }) => void;
@@ -136,6 +164,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [checkins, setCheckins] = usePersistentState<AttendanceRecord[]>('checkins', CHECKINS);
   const [attendanceMarks, setAttendanceMarks] = usePersistentState<Record<string, Mark[]>>('attendanceMarks', buildAttendanceMarks(EMPLOYEES));
   const [tiffinLabels, setTiffinLabels] = usePersistentState<TiffinLabel[]>('tiffinLabels', DEFAULT_TIFFIN_LABELS);
+  const [session, setSession] = usePersistentState<Session>('session', DEFAULT_SESSION);
+  const [auditLog, setAuditLog] = usePersistentState<AuditEntry[]>('auditLog', []);
   const [notices] = useState<Notice[]>(NOTICES);
 
   const updateEmployee = (employeeId: string, fn: (e: Employee) => Employee) =>
@@ -153,8 +183,47 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       checkins,
       attendanceMarks,
       tiffinLabels,
+      session,
+      auditLog,
       getEmployee: (id) => employees.find((e) => e.id === id),
       getBranch: (id) => branches.find((b) => b.id === id),
+
+      setSession,
+      logAudit: (entry) =>
+        setAuditLog((prev) => [{ ...entry, id: uid('aud'), at: new Date().toISOString(), by: `${session.name} (${session.role})` }, ...prev]),
+      overrideEmployeeField: (employeeId, field, newValue, reason) => {
+        const emp = employees.find((e) => e.id === employeeId);
+        if (!emp) return;
+        const oldValue = emp[field];
+        updateEmployee(employeeId, (e) => ({ ...e, [field]: newValue }));
+        setAuditLog((prev) => [
+          { id: uid('aud'), at: new Date().toISOString(), by: `${session.name} (${session.role})`, entity: 'Employee', target: `${emp.name} (${emp.id})`, field: OVERRIDE_FIELDS[field], oldValue: String(oldValue), newValue: String(newValue), reason },
+          ...prev,
+        ]);
+        toast('Override saved to audit log');
+      },
+      bulkMark: (employeeIds, dayIndex, mark) => {
+        setAttendanceMarks((prev) => {
+          const next = { ...prev };
+          for (const id of employeeIds) {
+            const base = next[id] ?? Array.from({ length: CURRENT_MONTH.workingDays }, () => 'O' as Mark);
+            const row = [...base];
+            row[dayIndex] = mark;
+            next[id] = row;
+          }
+          return next;
+        });
+        setEmployees((emps) =>
+          emps.map((e) => {
+            if (!employeeIds.includes(e.id)) return e;
+            const base = attendanceMarks[e.id] ?? Array.from({ length: CURRENT_MONTH.workingDays }, () => 'O' as Mark);
+            const row = [...base];
+            row[dayIndex] = mark;
+            return { ...e, worked: workedFromMarks(row), daysPresent: countMark(row, 'P'), daysAbsent: countMark(row, 'A'), daysHalf: countMark(row, 'H'), leaveUsed: countMark(row, 'L') + countMark(row, 'A') };
+          }),
+        );
+        toast(`Marked ${employeeIds.length} employee${employeeIds.length > 1 ? 's' : ''}`);
+      },
 
       /* ---- Employees ---- */
       addEmployee: (input) => {
@@ -374,7 +443,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [employees, branches, formulaBlocks, notices, checkins, attendanceMarks, tiffinLabels],
+    [employees, branches, formulaBlocks, notices, checkins, attendanceMarks, tiffinLabels, session, auditLog],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

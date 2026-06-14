@@ -1,20 +1,49 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Icon, Input, type IconName } from '../components/ui';
+import { Button, Chip, Icon, Input, Select } from '../components/ui';
+import { useAppStore } from '../store/AppStore';
+import type { Role } from '../types';
 import logo from '../assets/ganguram-logo.png';
 import gauri from '../assets/gauri-mascot.png';
 
-const TRUST_CHIPS: { label: string; icon: IconName }[] = [
+const TRUST_CHIPS: { label: string; icon: Parameters<typeof Icon>[0]['name'] }[] = [
   { label: 'Attendance', icon: 'calendar' },
   { label: 'Salary', icon: 'wallet' },
   { label: 'Payments', icon: 'banknote' },
   { label: 'Leave', icon: 'clock' },
 ];
 
+const ROLES: { id: Role; label: string; icon: Parameters<typeof Icon>[0]['name'] }[] = [
+  { id: 'admin', label: 'Admin', icon: 'shield' },
+  { id: 'manager', label: 'Manager', icon: 'badgeCheck' },
+  { id: 'employee', label: 'Employee', icon: 'user' },
+];
+
 export function LoginPage() {
   const navigate = useNavigate();
-  const [id, setId] = useState('subir.m@ganguram.in');
+  const { branches, employees, setSession } = useAppStore();
+  const portalEmployees = employees.filter((e) => e.login === 'enabled');
+
+  const [role, setRole] = useState<Role>('admin');
+  const [branch, setBranch] = useState(branches[0]?.name ?? '');
+  const [employeeId, setEmployeeId] = useState(portalEmployees[0]?.id ?? employees[0]?.id ?? '');
+  const [id, setId] = useState('demo@ganguram.in');
   const [password, setPassword] = useState('demo');
+
+  const signIn = () => {
+    if (role === 'admin') {
+      setSession({ role: 'admin', name: 'Indrajit Pal' });
+      navigate('/');
+    } else if (role === 'manager') {
+      const b = branches.find((x) => x.name === branch);
+      setSession({ role: 'manager', name: b?.manager ?? 'Branch Manager', branch });
+      navigate('/manager');
+    } else {
+      const emp = employees.find((e) => e.id === employeeId) ?? employees[0];
+      setSession({ role: 'employee', name: emp.name, employeeId: emp.id });
+      navigate('/portal');
+    }
+  };
 
   return (
     <div
@@ -29,7 +58,6 @@ export function LoginPage() {
       }}
     >
       <div style={{ width: 440, maxWidth: '100%' }}>
-        {/* Branded hero */}
         <div
           style={{
             position: 'relative',
@@ -41,14 +69,12 @@ export function LoginPage() {
             boxShadow: 'var(--shadow-brand)',
           }}
         >
-          {/* Soft abstract shapes */}
           <div style={{ position: 'absolute', top: -54, right: -44, width: 184, height: 184, borderRadius: '50%', background: 'radial-gradient(circle, rgba(234,84,84,0.45) 0%, transparent 68%)' }} />
           <div style={{ position: 'absolute', bottom: -70, left: -40, width: 210, height: 210, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,255,255,0.16) 0%, transparent 70%)' }} />
           <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(rgba(255,255,255,0.10) 1px, transparent 1px)', backgroundSize: '18px 18px', opacity: 0.5 }} />
 
           <div style={{ position: 'relative', zIndex: 1 }}>
             <img src={logo} alt="Ganguram" style={{ height: 30, filter: 'brightness(0) invert(1)' }} />
-
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 16 }}>
               <img src={gauri} alt="Gauri" style={{ height: 84, flexShrink: 0, filter: 'drop-shadow(0 10px 18px rgba(0,0,0,0.35))' }} />
               <div style={{ minWidth: 0 }}>
@@ -56,10 +82,9 @@ export function LoginPage() {
                   Namaste <span aria-hidden>🙏</span>
                 </div>
                 <h1 style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', color: '#fff', marginTop: 4, lineHeight: 1.15 }}>Welcome back</h1>
-                <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.82)', marginTop: 4, lineHeight: 1.45 }}>Your Ganguram employee portal</p>
+                <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.82)', marginTop: 4, lineHeight: 1.45 }}>Ganguram staff portal</p>
               </div>
             </div>
-
             <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 16 }}>
               {TRUST_CHIPS.map((c) => (
                 <span key={c.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, color: '#fff', background: 'rgba(255,255,255,0.14)', border: '1px solid rgba(255,255,255,0.22)', borderRadius: 'var(--radius-pill)', padding: '5px 11px' }}>
@@ -70,53 +95,43 @@ export function LoginPage() {
           </div>
         </div>
 
-        {/* Overlapping form card */}
-        <div
-          style={{
-            position: 'relative',
-            zIndex: 2,
-            marginTop: -22,
-            background: 'var(--surface-card)',
-            borderRadius: 'var(--radius-xl)',
-            boxShadow: 'var(--shadow-lg)',
-            border: '1px solid var(--border-subtle)',
-            padding: 24,
-          }}
-        >
-          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Employee portal</span>
-          <h2 style={{ fontSize: 21, fontWeight: 800, color: 'var(--text-strong)', letterSpacing: '-0.02em', marginTop: 6 }}>Sign in</h2>
-          <div style={{ width: 36, height: 3, borderRadius: 'var(--radius-pill)', background: 'var(--brand-accent)', marginTop: 8 }} />
+        <div style={{ position: 'relative', zIndex: 2, marginTop: -22, background: 'var(--surface-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-lg)', border: '1px solid var(--border-subtle)', padding: 24 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Sign in as</span>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, marginBottom: 4 }}>
+            {ROLES.map((r) => (
+              <Chip key={r.id} kind="filter" active={role === r.id} icon={r.icon} onClick={() => setRole(r.id)} style={{ flex: 1, justifyContent: 'center' }}>
+                {r.label}
+              </Chip>
+            ))}
+          </div>
+          <div style={{ width: 36, height: 3, borderRadius: 'var(--radius-pill)', background: 'var(--brand-accent)', marginTop: 12 }} />
           <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 12, lineHeight: 1.5 }}>Access attendance, salary, leave and payment records securely.</p>
 
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              navigate('/portal');
+              signIn();
             }}
             style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 18 }}
           >
-            <Input label="Employee ID / email / phone" value={id} onChange={(e) => setId(e.target.value)} icon="user" />
+            {role === 'manager' && <Select label="Branch" value={branch} onChange={(e) => setBranch(e.target.value)} options={branches.map((b) => b.name)} />}
+            {role === 'employee' && (
+              <Select label="Employee" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} options={(portalEmployees.length ? portalEmployees : employees).map((e) => ({ value: e.id, label: e.name }))} />
+            )}
+            <Input label="Email / phone" value={id} onChange={(e) => setId(e.target.value)} icon="user" />
             <Input label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} icon="lock" />
-            <Button variant="primary" size="lg" full type="submit" iconRight={<Icon name="chevronRight" size={17} />}>Sign in to portal</Button>
+            <Button variant="primary" size="lg" full type="submit" iconRight={<Icon name="chevronRight" size={17} />}>
+              Sign in{role === 'admin' ? ' to admin suite' : role === 'manager' ? ' as manager' : ' to portal'}
+            </Button>
           </form>
 
           <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', fontSize: 12, color: 'var(--indigo-700)', background: 'var(--indigo-50)', border: '1px solid var(--indigo-100)', borderRadius: 'var(--radius-md)', padding: '11px 13px', marginTop: 16 }}>
             <Icon name="info" size={14} color="var(--indigo-500)" style={{ marginTop: 1, flexShrink: 0 }} />
-            <span><strong style={{ fontWeight: 700 }}>Demo foundation</strong> — any credentials open the portal as a sample employee.</span>
+            <span><strong style={{ fontWeight: 700 }}>Demo foundation</strong> — pick a role; any credentials sign you in.</span>
           </div>
         </div>
 
-        {/* Subtle secondary link */}
-        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 18 }}>
-          <button
-            onClick={() => navigate('/')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'var(--text-muted)', fontFamily: 'var(--font-sans)', padding: '8px 10px' }}
-          >
-            <Icon name="chevronLeft" size={14} /> Back to admin suite
-          </button>
-        </div>
-
-        <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-subtle)', marginTop: 4 }}>Ganguram Sweets · since 1885</div>
+        <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-subtle)', marginTop: 16 }}>Ganguram Sweets · since 1885</div>
       </div>
     </div>
   );

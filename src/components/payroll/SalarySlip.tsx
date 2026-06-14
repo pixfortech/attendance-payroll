@@ -1,8 +1,8 @@
 import { Avatar, Badge, Button, Icon, IconButton } from '../ui';
 import { formatINR, formatSignedINR } from '../../services';
-import { employeeBreakdown } from '../../lib/payroll';
+import { employeeBreakdown, employeeAdvanceRemaining } from '../../lib/payroll';
 import { CURRENT_MONTH } from '../../data';
-import { PAYROLL_STATUS_META } from './statusMeta';
+import { CONFIRMATION_META, PAYROLL_STATUS_META } from './statusMeta';
 import type { Employee } from '../../types';
 import logo from '../../assets/ganguram-logo.png';
 
@@ -38,6 +38,8 @@ function LineItem({
 export function SalarySlip({ employee, onClose }: { employee: Employee; onClose: () => void }) {
   const b = employeeBreakdown(employee);
   const status = PAYROLL_STATUS_META[employee.payrollStatus];
+  const advanceRemaining = employeeAdvanceRemaining(employee);
+  const lastSalaryPayment = employee.payments.find((p) => p.type === 'Salary');
 
   return (
     <div
@@ -106,6 +108,9 @@ export function SalarySlip({ employee, onClose }: { employee: Employee; onClose:
               tone={b.leaveDeduction > 0 ? 'red' : undefined}
             />
             <LineItem label="Tiffin / food allowance" sub="Company-paid CTC · on top of salary" value={formatSignedINR(b.tiffinTotal)} tone="green" />
+            {b.advanceAdjustment > 0 && (
+              <LineItem label="Advance adjustment" sub={`Remaining advance balance ${formatINR(advanceRemaining)}`} value={formatSignedINR(-b.advanceAdjustment)} tone="red" />
+            )}
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 18px', marginTop: 18, background: 'var(--indigo-50)', border: '1px solid var(--indigo-100)', borderRadius: 'var(--radius-md)' }}>
@@ -113,9 +118,19 @@ export function SalarySlip({ employee, onClose }: { employee: Employee; onClose:
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--indigo-600)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Net payable</div>
               <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
                 Salary {formatINR(b.salaryPayable)} + Tiffin {formatINR(b.tiffinTotal)}
+                {b.advanceAdjustment > 0 ? ` − Advance ${formatINR(b.advanceAdjustment)}` : ''}
               </div>
             </div>
             <span style={{ fontSize: 26, fontWeight: 800, color: 'var(--indigo-700)', fontFamily: 'var(--font-mono)', letterSpacing: '-0.02em' }}>{formatINR(b.finalPayable)}</span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, fontSize: 12.5 }}>
+            <span style={{ color: 'var(--text-muted)' }}>Payment · {lastSalaryPayment?.method ?? 'Not yet paid'}</span>
+            {lastSalaryPayment ? (
+              <Badge variant={CONFIRMATION_META[lastSalaryPayment.status].variant} size="sm" dot>{CONFIRMATION_META[lastSalaryPayment.status].label}</Badge>
+            ) : (
+              <Badge variant={status.variant} size="sm" dot>{status.label}</Badge>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: 10, marginTop: 18 }} className="gx-no-print">

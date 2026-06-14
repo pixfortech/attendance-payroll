@@ -28,6 +28,31 @@ export interface Advance {
   receipt?: string | null;
   /** Adjusted/recovered against salary. */
   cleared: boolean;
+  /** Optional repayment plan + generated schedule. */
+  plan?: AdvancePlan;
+  schedule?: AdvanceAdjustment[];
+}
+
+/** How an advance is recovered from salary across months. */
+export interface AdvancePlan {
+  monthlyAmount: number;
+  months: number;
+  /** Salary month the recovery starts, e.g. "Mar 2026". */
+  startMonth: string;
+}
+
+/** A single scheduled (or applied) advance recovery against one salary month. */
+export interface AdvanceAdjustment {
+  id: string;
+  month: string;
+  amount: number;
+  balanceAfter: number;
+  /** Applied (deducted) vs merely scheduled. */
+  done: boolean;
+  date?: string;
+  by?: string;
+  note?: string;
+  manualOverride?: boolean;
 }
 
 export type PaymentType =
@@ -221,4 +246,29 @@ export interface Notice {
   body: string;
   date: string;
   tone: 'info' | 'brand' | 'warning';
+}
+
+/* ---------- Roles & session ---------- */
+export type Role = 'admin' | 'manager' | 'employee';
+
+export interface Session {
+  role: Role;
+  name: string;
+  /** For employee sessions — the signed-in employee. */
+  employeeId?: string;
+  /** For manager sessions — the branch they manage. */
+  branch?: string;
+}
+
+/* ---------- Audit log (admin overrides) ---------- */
+export interface AuditEntry {
+  id: string;
+  at: string;
+  by: string;
+  entity: string;
+  target: string;
+  field: string;
+  oldValue: string;
+  newValue: string;
+  reason?: string;
 }

@@ -69,6 +69,15 @@ describe('App — smoke & navigation', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Salary' })).toBeTruthy();
   });
 
+  it('login routes to the manager portal by role', () => {
+    window.history.pushState({}, '', '/login');
+    render(<App />);
+    fireEvent.click(screen.getByText('Manager')); // role chip
+    fireEvent.click(screen.getByRole('button', { name: /Sign in/ }));
+    expect(screen.getByText('Manager portal')).toBeTruthy();
+    expect(screen.getByText('Proof to approve')).toBeTruthy();
+  });
+
   it('approving a salary row mutates state and re-renders', () => {
     render(<App />);
     fireEvent.click(within(screen.getByRole('complementary')).getByText('Salary'));

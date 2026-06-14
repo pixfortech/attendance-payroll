@@ -5,5 +5,6 @@ export * from './salary';
 export * from './tiffin';
 export * from './leave';
 export * from './attendance';
+export * from './advance';
 export * from './formula';
 export * from './variables';

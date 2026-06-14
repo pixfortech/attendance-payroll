@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Avatar, Badge, Button, Card, Icon, Select, Tabs } from '../components/ui';
+import { BulkAttendanceModal } from '../components/payroll/BulkAttendanceModal';
 import { PROOF_META } from '../components/payroll/statusMeta';
 import { useAppStore } from '../store/AppStore';
 import { useIsMobile } from '../hooks/useMediaQuery';
@@ -33,6 +34,7 @@ export function AttendancePage() {
   const isMobile = useIsMobile();
   const [view, setView] = useState('grid');
   const [branch, setBranch] = useState(BRANCH_NAMES[0]);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const gridStaff = employees.filter((e) => e.branch === branch).map((e) => ({ id: e.id, name: e.name, role: e.role, days: attendanceMarks[e.id] ?? Array.from({ length: DAYS }, () => 'O' as Mark) }));
 
@@ -65,12 +67,15 @@ export function AttendancePage() {
             <Select value={branch} onChange={(e) => setBranch(e.target.value)} options={BRANCH_NAMES} />
           </div>
         )}
+        {view === 'grid' && <Button variant="tonal" iconLeft={<Icon name="users" size={16} />} onClick={() => setBulkOpen(true)}>Bulk mark</Button>}
         {view === 'grid' && <Button variant="secondary" iconLeft={<Icon name="download" size={16} />} onClick={exportGrid}>Export</Button>}
       </div>
 
       {view === 'grid' && (isMobile ? <MonthGridMobile staff={gridStaff} branch={branch} onCycle={cycle} /> : <MonthGridDesktop staff={gridStaff} branch={branch} onCycle={cycle} />)}
       {view === 'proof' && <ProofView checkins={checkins} />}
       {view === 'methods' && <MethodsView branch={branch} />}
+
+      {bulkOpen && <BulkAttendanceModal branchLocked={branch} onClose={() => setBulkOpen(false)} />}
     </div>
   );
 }

@@ -48,6 +48,8 @@ export interface SalaryInput {
   status: EmployeeStatus;
   leaveUsed: number;
   tiffinTotal: number;
+  /** Advance recovered from this month's salary (from the repayment plan). */
+  advanceAdjustment?: number;
   /** Custom payroll-block earnings to add (bonus, overtime, incentive…). */
   extraEarnings?: number;
   /** Custom payroll-block deductions to subtract (penalty, advance recovery…). */
@@ -67,7 +69,9 @@ export interface SalaryBreakdown {
   totalEarnings: number;
   totalDeductions: number;
   tiffinTotal: number;
-  /** Salary payable + tiffin CTC + custom blocks. */
+  /** Advance recovered from this month's salary. */
+  advanceAdjustment: number;
+  /** Salary payable + tiffin CTC − advance adjustment + custom blocks. */
   finalPayable: number;
 }
 
@@ -94,10 +98,11 @@ export function calculateSalary(input: SalaryInput): SalaryBreakdown {
   const extraEarnings = input.extraEarnings ?? 0;
   const extraDeductions = input.extraDeductions ?? 0;
 
+  const advanceAdjustment = input.advanceAdjustment ?? 0;
   const totalEarnings = round2(input.monthlySalary + extraEarnings);
   const totalDeductions = round2(leaveDeduction + extraDeductions);
   const salaryPayable = round2(totalEarnings - totalDeductions);
-  const finalPayable = round2(salaryPayable + input.tiffinTotal);
+  const finalPayable = round2(salaryPayable + input.tiffinTotal - advanceAdjustment);
 
   return {
     daily,
@@ -111,6 +116,7 @@ export function calculateSalary(input: SalaryInput): SalaryBreakdown {
     totalEarnings,
     totalDeductions,
     tiffinTotal: input.tiffinTotal,
+    advanceAdjustment,
     finalPayable,
   };
 }

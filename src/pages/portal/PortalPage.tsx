@@ -2,13 +2,14 @@ import { useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Avatar, Badge, Button, Card, Icon, Input, KV, Modal, Select, StatCard, type IconName } from '../../components/ui';
 import { SalarySlip } from '../../components/payroll/SalarySlip';
-import { CONFIRMATION_META } from '../../components/payroll/statusMeta';
+import { CONFIRMATION_META, PROOF_META } from '../../components/payroll/statusMeta';
 import { useAppStore } from '../../store/AppStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
-import { employeeBreakdown, employeeOutstandingAdvance, employeeTiffinTotal } from '../../lib/payroll';
-import { formatINR, formatINR0 } from '../../services';
+import { employeeBreakdown, employeeAdvanceAdjustment, employeeAdvanceRemaining, employeeOutstandingAdvance, employeeTiffinTotal } from '../../lib/payroll';
+import { PROOF_METHOD_LABEL } from '../../services/attendance';
+import { formatINR, formatINR0, formatSignedINR } from '../../services';
 import { CURRENT_MONTH } from '../../data';
-import type { Employee, LeaveType } from '../../types';
+import type { ConfirmationStatus, Employee, LeaveType } from '../../types';
 import logo from '../../assets/ganguram-logo.png';
 import gauri from '../../assets/gauri-mascot.png';
 
@@ -30,16 +31,15 @@ const mono = { fontFamily: 'var(--font-mono)' as const };
 
 export function PortalPage() {
   const navigate = useNavigate();
-  const { employees } = useAppStore();
+  const { employees, session } = useAppStore();
   const isMobile = useIsMobile();
-  const emp = employees.find((e) => e.login === 'enabled') ?? employees[0];
+  const emp = employees.find((e) => e.id === session.employeeId) ?? employees.find((e) => e.login === 'enabled') ?? employees[0];
   const [section, setSection] = useState<Section>('home');
   const [slip, setSlip] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--surface-page)', paddingBottom: isMobile ? 76 : 0 }}>
-      {/* Topbar */}
       <header style={{ height: 60, display: 'flex', alignItems: 'center', gap: 12, padding: '0 16px', background: 'var(--surface-card)', borderBottom: '1px solid var(--border-subtle)', position: 'sticky', top: 0, zIndex: 10 }}>
         <img src={logo} alt="Ganguram" style={{ height: 34 }} />
         {!isMobile && <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Employee portal</span>}
@@ -54,15 +54,10 @@ export function PortalPage() {
         <Button variant="ghost" size="sm" iconLeft={<Icon name="logout" size={15} />} onClick={() => navigate('/login')}>{isMobile ? '' : 'Sign out'}</Button>
       </header>
 
-      {/* Desktop section pills */}
       {!isMobile && (
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: '16px 24px 0', display: 'flex', gap: 6 }}>
           {SECTIONS.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => setSection(s.id)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 'var(--radius-pill)', border: '1px solid', borderColor: section === s.id ? 'var(--brand-primary)' : 'var(--border-subtle)', background: section === s.id ? 'var(--brand-primary)' : 'var(--surface-card)', color: section === s.id ? '#fff' : 'var(--text-body)', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}
-            >
+            <button key={s.id} onClick={() => setSection(s.id)} style={pillStyle(section === s.id)}>
               <Icon name={s.icon} size={16} /> {s.label}
             </button>
           ))}
@@ -70,6 +65,11 @@ export function PortalPage() {
       )}
 
       <main className="gx-scroll" style={{ maxWidth: 1100, margin: '0 auto', padding: isMobile ? '16px 14px 24px' : '20px 24px 40px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {section !== 'home' && isMobile && (
+          <button onClick={() => setSection('home')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', fontFamily: 'var(--font-sans)', padding: 0 }}>
+            <Icon name="chevronLeft" size={16} /> Home
+          </button>
+        )}
         {section === 'home' && <HomeSection emp={emp} onSlip={() => setSlip(true)} onGoLeave={() => setSection('leave')} />}
         {section === 'attendance' && <AttendanceSection emp={emp} />}
         {section === 'leave' && <LeaveSection emp={emp} onRequest={() => setLeaveOpen(true)} />}
@@ -77,17 +77,12 @@ export function PortalPage() {
         {section === 'profile' && <ProfileSection emp={emp} onSignOut={() => navigate('/login')} />}
       </main>
 
-      {/* Mobile bottom nav */}
       {isMobile && (
         <nav style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: 64, background: 'var(--surface-card)', borderTop: '1px solid var(--border-subtle)', display: 'flex', zIndex: 40, boxShadow: '0 -2px 12px rgba(38,37,74,0.06)' }}>
           {SECTIONS.map((s) => {
             const on = section === s.id;
             return (
-              <button
-                key={s.id}
-                onClick={() => setSection(s.id)}
-                style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, border: 'none', background: 'transparent', cursor: 'pointer', color: on ? 'var(--brand-primary)' : 'var(--text-muted)', fontFamily: 'var(--font-sans)', minHeight: 44 }}
-              >
+              <button key={s.id} onClick={() => setSection(s.id)} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, border: 'none', background: 'transparent', cursor: 'pointer', color: on ? 'var(--brand-primary)' : 'var(--text-muted)', minHeight: 44, fontFamily: 'var(--font-sans)' }}>
                 <Icon name={s.icon} size={21} />
                 <span style={{ fontSize: 10.5, fontWeight: on ? 700 : 600 }}>{s.label}</span>
               </button>
@@ -102,9 +97,23 @@ export function PortalPage() {
   );
 }
 
+function BreakdownRow({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: 'red' | 'green' }) {
+  const color = tone === 'red' ? 'var(--coral-600)' : tone === 'green' ? 'var(--green-700)' : 'var(--text-strong)';
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '8px 0', borderBottom: '1px dashed var(--border-subtle)' }}>
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-strong)' }}>{label}</div>
+        {sub && <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{sub}</div>}
+      </div>
+      <span style={{ fontSize: 13.5, fontWeight: 600, ...mono, color }}>{value}</span>
+    </div>
+  );
+}
+
 function HomeSection({ emp, onSlip, onGoLeave }: { emp: Employee; onSlip: () => void; onGoLeave: () => void }) {
   const { notices, updatePaymentStatus } = useAppStore();
   const b = employeeBreakdown(emp);
+  const advAdj = employeeAdvanceAdjustment(emp);
   const pending = emp.payments.filter((p) => p.status === 'pending');
   return (
     <>
@@ -113,7 +122,7 @@ function HomeSection({ emp, onSlip, onGoLeave }: { emp: Employee; onSlip: () => 
         <div style={{ flex: 1, minWidth: 180 }}>
           <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)' }}>Namaste</div>
           <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em', color: '#fff', marginTop: 2 }}>{emp.name.split(' ')[0]}</h1>
-          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', marginTop: 6 }}>Your {CURRENT_MONTH.label} net payable</p>
+          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', marginTop: 6 }}>Your {CURRENT_MONTH.label} net payable (live)</p>
           <div style={{ fontSize: 30, fontWeight: 800, ...mono, marginTop: 2 }}>{formatINR0(b.finalPayable)}</div>
           <Button variant="accent" size="sm" iconLeft={<Icon name="fileText" size={15} />} onClick={onSlip} style={{ marginTop: 10 }}>View salary slip</Button>
         </div>
@@ -123,8 +132,21 @@ function HomeSection({ emp, onSlip, onGoLeave }: { emp: Employee; onSlip: () => 
         <StatCard label="Worked days" value={emp.worked} suffix={`/ ${CURRENT_MONTH.workingDays}`} icon="calendar" tone="brand" />
         <StatCard label="Free leave left" value={b.leaveUnused} suffix="/ 4" icon="circleCheck" tone="green" />
         <StatCard label="Tiffin (CTC)" value={formatINR0(employeeTiffinTotal(emp)).replace('₹', '')} prefix="₹" icon="utensils" tone="blue" />
-        <StatCard label="Advance" value={formatINR0(employeeOutstandingAdvance(emp)).replace('₹', '')} prefix="₹" icon="banknote" tone="amber" />
+        <StatCard label="Advance balance" value={formatINR0(employeeAdvanceRemaining(emp)).replace('₹', '')} prefix="₹" icon="banknote" tone="amber" />
       </div>
+
+      <Card title="This month — net payable" subtitle="Updates live as your attendance changes">
+        <BreakdownRow label="Gross monthly salary" value={formatINR(emp.salary)} />
+        <BreakdownRow label="Attendance" sub={`${emp.daysPresent} present · ${emp.daysAbsent} absent · ${emp.daysHalf} half`} value={`${emp.worked} d`} />
+        <BreakdownRow label="Paid / free leave" sub={`${b.freeLeaveUsed} used · ${b.leaveUnused} left of 4`} value={`${emp.leaveUsed} taken`} />
+        <BreakdownRow label="Leave deduction" sub={b.leaveDeduction > 0 ? `${b.deductibleDays} deductible day(s)` : 'Within free-leave limit'} value={b.leaveDeduction > 0 ? formatSignedINR(-b.leaveDeduction) : formatINR(0)} tone={b.leaveDeduction > 0 ? 'red' : undefined} />
+        <BreakdownRow label="Tiffin / food allowance" sub="Company-paid CTC, separate from salary" value={formatSignedINR(b.tiffinTotal)} tone="green" />
+        {advAdj > 0 && <BreakdownRow label="Advance adjustment" sub={`Remaining advance ${formatINR0(employeeAdvanceRemaining(emp))}`} value={formatSignedINR(-advAdj)} tone="red" />}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', marginTop: 12, background: 'var(--indigo-50)', borderRadius: 'var(--radius-md)' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--indigo-700)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Net payable</span>
+          <span style={{ fontSize: 22, fontWeight: 800, ...mono, color: 'var(--indigo-700)' }}>{formatINR(b.finalPayable)}</span>
+        </div>
+      </Card>
 
       <Card title="Pending payment confirmations" action={<Badge variant="pending">{pending.length}</Badge>}>
         {pending.length === 0 ? (
@@ -171,7 +193,10 @@ function HomeSection({ emp, onSlip, onGoLeave }: { emp: Employee; onSlip: () => 
 }
 
 function AttendanceSection({ emp }: { emp: Employee }) {
-  const b = employeeBreakdown(emp);
+  const { checkins, attendanceMarks } = useAppStore();
+  const myCheckins = checkins.filter((c) => c.employeeId === emp.id);
+  const marks = attendanceMarks[emp.id] ?? [];
+  const markColor = (m: string) => (m === 'P' ? 'var(--green-500)' : m === 'A' ? 'var(--coral-500)' : m === 'H' ? 'var(--amber-500)' : m === 'L' ? 'var(--blue-500)' : 'var(--neutral-300)');
   return (
     <>
       <div className="gx-grid gx-grid-stats">
@@ -180,21 +205,37 @@ function AttendanceSection({ emp }: { emp: Employee }) {
         <StatCard label="Absent" value={emp.daysAbsent} icon="x" tone="coral" />
         <StatCard label="Leave used" value={emp.leaveUsed} icon="clock" tone="blue" />
       </div>
-      <Card title="This month" subtitle={`${CURRENT_MONTH.label} · ${emp.branch}`}>
-        <KV label="Daily salary basis" value={emp.basis === 'fixed30' ? 'Fixed 30-day' : 'Actual calendar-day'} icon="calculator" />
-        <KV label="Daily salary" value={formatINR(b.daily)} mono icon="rupee" />
-        <KV label="Free paid leave left" value={`${b.leaveUnused} / 4`} icon="circleCheck" valueColor={b.leaveUnused > 0 ? 'var(--green-700)' : 'var(--coral-600)'} />
+      <Card title={`${CURRENT_MONTH.label} attendance`} subtitle={emp.branch}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {marks.map((m, i) => (
+            <span key={i} title={`Day ${i + 1}: ${m}`} style={{ width: 22, height: 22, borderRadius: 6, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: '#fff', background: markColor(m) }}>{m === 'O' ? '·' : m}</span>
+          ))}
+          {marks.length === 0 && <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>No attendance recorded yet.</span>}
+        </div>
       </Card>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, color: 'var(--text-muted)', background: 'var(--surface-inset)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '12px 14px' }}>
-        <Icon name="qr" size={16} color="var(--indigo-500)" style={{ marginTop: 1 }} />
-        Check in each day by scanning your branch QR. If GPS or selfie is required, follow the on-screen prompt.
-      </div>
+      <Card title="Check-in / check-out logs" subtitle="Your recent punches">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {myCheckins.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No check-in logs yet.</div>}
+          {myCheckins.map((c) => (
+            <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+              <Icon name="qr" size={16} color="var(--indigo-600)" />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong)' }}>{c.date} · {c.time}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{PROOF_METHOD_LABEL[c.method]}</div>
+              </div>
+              <Badge variant={PROOF_META[c.strength].variant} size="sm" dot>{c.approved ? 'Approved' : 'Pending'}</Badge>
+            </div>
+          ))}
+        </div>
+      </Card>
     </>
   );
 }
 
 function LeaveSection({ emp, onRequest }: { emp: Employee; onRequest: () => void }) {
   const b = employeeBreakdown(emp);
+  const [status, setStatus] = useState('all');
+  const leaves = emp.leaves.filter((l) => status === 'all' || l.status === status);
   return (
     <>
       <Card title="Free leave balance" subtitle="4 paid leaves per month for eligible staff">
@@ -204,23 +245,17 @@ function LeaveSection({ emp, onRequest }: { emp: Employee; onRequest: () => void
         </div>
         <Button variant="primary" full iconLeft={<Icon name="plus" size={16} />} onClick={onRequest} style={{ marginTop: 14 }}>Request leave</Button>
       </Card>
-      <Card title="Leave requests">
+      <Card title="Leave history" action={<div style={{ width: 150 }}><Select value={status} onChange={(e) => setStatus(e.target.value)} options={[{ value: 'all', label: 'All statuses' }, { value: 'pending', label: 'Pending' }, { value: 'approved', label: 'Approved' }, { value: 'rejected', label: 'Rejected' }]} /></div>}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {emp.leaves.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No leave requests yet.</div>}
-          {emp.leaves.map((l) => (
+          {leaves.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No leave records.</div>}
+          {leaves.map((l) => (
             <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 12px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
               <Icon name="calendar" size={16} color="var(--blue-600)" />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong)' }}>{l.dateLabel} · {l.days}d</div>
                 <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{l.type} · {l.reason}</div>
               </div>
-              {l.status === 'pending' ? (
-                <Badge variant="pending" size="sm" dot>Pending</Badge>
-              ) : l.status === 'rejected' ? (
-                <Badge variant="rejected" size="sm" dot>Rejected</Badge>
-              ) : (
-                <Badge variant={l.paid ? 'eligible' : 'deductible'} size="sm" dot>{l.paid ? 'Paid' : 'Unpaid'}</Badge>
-              )}
+              {l.status === 'pending' ? <Badge variant="pending" size="sm" dot>Pending</Badge> : l.status === 'rejected' ? <Badge variant="rejected" size="sm" dot>Rejected</Badge> : <Badge variant={l.paid ? 'eligible' : 'deductible'} size="sm" dot>{l.paid ? 'Paid' : 'Unpaid'}</Badge>}
             </div>
           ))}
         </div>
@@ -230,12 +265,19 @@ function LeaveSection({ emp, onRequest }: { emp: Employee; onRequest: () => void
 }
 
 function PaymentsSection({ emp, onSlip }: { emp: Employee; onSlip: () => void }) {
+  const [status, setStatus] = useState<'all' | ConfirmationStatus>('all');
+  const payments = emp.payments.filter((p) => status === 'all' || p.status === status);
   return (
     <>
       <Button variant="secondary" full iconLeft={<Icon name="fileText" size={16} />} onClick={onSlip}>View current salary slip</Button>
-      <Card title="Payment receipts" subtitle="Salary, advance, tiffin & bonus">
+      <Card
+        title="Payment receipts"
+        subtitle="Salary, advance, tiffin & bonus"
+        action={<div style={{ width: 160 }}><Select value={status} onChange={(e) => setStatus(e.target.value as 'all' | ConfirmationStatus)} options={[{ value: 'all', label: 'All' }, { value: 'pending', label: 'Pending' }, { value: 'confirmed', label: 'Confirmed' }, { value: 'disputed', label: 'Disputed' }]} /></div>}
+      >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {emp.payments.map((p) => {
+          {payments.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No payments for this filter.</div>}
+          {payments.map((p) => {
             const m = CONFIRMATION_META[p.status];
             return (
               <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 13px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
@@ -251,6 +293,25 @@ function PaymentsSection({ emp, onSlip }: { emp: Employee; onSlip: () => void })
             );
           })}
         </div>
+      </Card>
+      <Card title="Advance history" subtitle={`Outstanding ${formatINR0(employeeOutstandingAdvance(emp))}`}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {emp.advances.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No advances.</div>}
+          {emp.advances.map((a) => (
+            <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 12px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+              <Icon name="banknote" size={16} color="var(--amber-600)" />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong)' }}>{formatINR0(a.amount)} · {a.date}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{a.note}{a.plan ? ` · ${formatINR0(a.plan.monthlyAmount)}/mo × ${a.plan.months}` : ''}</div>
+              </div>
+              {a.cleared ? <Badge variant="confirmed" size="sm" dot>Cleared</Badge> : <Badge variant="pending" size="sm" dot>Outstanding</Badge>}
+            </div>
+          ))}
+        </div>
+      </Card>
+      <Card title="Tiffin / food allowance" subtitle={`${CURRENT_MONTH.label}`}>
+        <KV label="Tiffin days this month" value={String(emp.tiffinDays)} icon="calendar" />
+        <KV label="Tiffin CTC payable" value={formatINR0(employeeTiffinTotal(emp))} mono icon="utensils" valueColor="var(--blue-600)" />
       </Card>
     </>
   );
@@ -319,4 +380,22 @@ function LeaveRequestModal({ emp, onClose }: { emp: Employee; onClose: () => voi
       </div>
     </Modal>
   );
+}
+
+function pillStyle(active: boolean): CSSProperties {
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 7,
+    padding: '9px 16px',
+    borderRadius: 'var(--radius-pill)',
+    border: '1px solid',
+    borderColor: active ? 'var(--brand-primary)' : 'var(--border-subtle)',
+    background: active ? 'var(--brand-primary)' : 'var(--surface-card)',
+    color: active ? '#fff' : 'var(--text-body)',
+    fontSize: 13.5,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'var(--font-sans)',
+  };
 }

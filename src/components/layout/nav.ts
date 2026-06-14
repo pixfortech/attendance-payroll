@@ -31,6 +31,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/payments', label: 'Payments', icon: 'history' },
       { to: '/formula', label: 'Formula Builder', icon: 'formula' },
       { to: '/reports', label: 'Reports', icon: 'barChart' },
+      { to: '/audit', label: 'Audit Log', icon: 'shield' },
     ],
   },
 ];
@@ -51,6 +52,7 @@ const META: Record<string, PageMeta> = {
   '/payments': { title: 'Payment History', sub: 'Receipts and salary paid / received confirmation' },
   '/formula': { title: 'Formula Builder', sub: 'Create custom payroll blocks with safe variables' },
   '/reports': { title: 'Reports & Export', sub: 'Generate and download payroll reports' },
+  '/audit': { title: 'Audit Log', sub: 'Every admin override, recorded' },
   '/settings': { title: 'Settings', sub: 'Payroll policy & system configuration' },
 };
 
