@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { QRCodeCanvas } from 'qrcode.react';
-import { Badge, Button, Icon, Input, Modal, Select, Switch, type BadgeVariant } from '../ui';
+import { Badge, Button, Icon, Input, Modal, Select, Switch, useConfirm, useToast, type BadgeVariant } from '../ui';
 import { useAppStore } from '../../store/AppStore';
 import type { Branch, QrStatus } from '../../types';
 
@@ -17,9 +17,20 @@ export function qrPayload(branch: Branch): string {
 
 export function BranchQrModal({ branch, onClose }: { branch: Branch; onClose: () => void }) {
   const { rotateBranchQr, updateBranchQrRotation, updateBranchGeofence } = useAppStore();
+  const confirm = useConfirm();
+  const toast = useToast();
   const wrapRef = useRef<HTMLDivElement>(null);
   const status = QR_STATUS_META[branch.qr.status];
   const g = branch.geofence;
+
+  const rotate = async () => {
+    const ok = await confirm({ title: 'Rotate branch QR?', message: `${branch.name}'s current QR will stop working immediately. Print and display the new code.`, confirmLabel: 'Rotate QR', tone: 'danger', icon: 'refresh' });
+    if (ok) rotateBranchQr(branch.id);
+  };
+  const done = () => {
+    toast('Branch settings saved');
+    onClose();
+  };
 
   const download = () => {
     const canvas = wrapRef.current?.querySelector('canvas');
@@ -49,7 +60,14 @@ export function BranchQrModal({ branch, onClose }: { branch: Branch; onClose: ()
   };
 
   return (
-    <Modal icon="qr" title={`${branch.name} — QR & location`} subtitle="Branch-specific attendance QR and geofence rules" onClose={onClose} width={540}>
+    <Modal
+      icon="qr"
+      title={`${branch.name} — QR & location`}
+      subtitle="Branch-specific attendance QR and geofence rules"
+      onClose={onClose}
+      width={540}
+      footer={<Button variant="primary" full iconLeft={<Icon name="check" size={16} />} onClick={done}>Save &amp; close</Button>}
+    >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         {/* QR preview */}
         <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -63,7 +81,7 @@ export function BranchQrModal({ branch, onClose }: { branch: Branch; onClose: ()
             </div>
             <div style={{ fontSize: 12, ...{ fontFamily: 'var(--font-mono)' }, color: 'var(--indigo-700)', wordBreak: 'break-all' }}>{branch.qr.token}</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <Button variant="primary" size="sm" iconLeft={<Icon name="refresh" size={14} />} onClick={() => rotateBranchQr(branch.id)}>Rotate now</Button>
+              <Button variant="primary" size="sm" iconLeft={<Icon name="refresh" size={14} />} onClick={rotate}>Rotate now</Button>
               <Button variant="secondary" size="sm" iconLeft={<Icon name="download" size={14} />} onClick={download}>Download</Button>
               <Button variant="secondary" size="sm" iconLeft={<Icon name="printer" size={14} />} onClick={print}>Print</Button>
             </div>

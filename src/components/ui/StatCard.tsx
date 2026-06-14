@@ -1,4 +1,4 @@
-import { type CSSProperties } from 'react';
+import React, { type CSSProperties } from 'react';
 import { Icon, type IconName } from './Icon';
 
 export type StatTone = 'brand' | 'green' | 'amber' | 'blue' | 'coral' | 'neutral';
@@ -13,6 +13,7 @@ export interface StatCardProps {
   delta?: string | null;
   deltaDir?: 'up' | 'down';
   footnote?: string | null;
+  onClick?: () => void;
   style?: CSSProperties;
 }
 
@@ -27,8 +28,10 @@ export function StatCard({
   delta = null,
   deltaDir = 'up',
   footnote = null,
+  onClick,
   style = {},
 }: StatCardProps) {
+  const [hover, setHover] = React.useState(false);
   const tones: Record<StatTone, { fg: string; bg: string }> = {
     brand: { fg: 'var(--indigo-700)', bg: 'var(--indigo-50)' },
     green: { fg: 'var(--green-700)', bg: 'var(--green-50)' },
@@ -40,17 +43,27 @@ export function StatCard({
   const t = tones[tone];
   const up = deltaDir === 'up';
 
+  const clickable = !!onClick;
   return (
     <div
+      onClick={onClick}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => (e.key === 'Enter' || e.key === ' ') && onClick!() : undefined}
+      onMouseEnter={() => clickable && setHover(true)}
+      onMouseLeave={() => setHover(false)}
       style={{
         background: 'var(--surface-card)',
         border: '1px solid var(--border-subtle)',
         borderRadius: 'var(--radius-lg)',
-        boxShadow: 'var(--shadow-sm)',
+        boxShadow: hover ? 'var(--shadow-md)' : 'var(--shadow-sm)',
         padding: 20,
         display: 'flex',
         flexDirection: 'column',
         gap: 14,
+        cursor: clickable ? 'pointer' : 'default',
+        transform: hover ? 'translateY(-2px)' : 'none',
+        transition: 'box-shadow var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out)',
         ...style,
       }}
     >

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Badge, Button, Card, Chip, Icon, Input, Select, Switch } from '../components/ui';
+import { Badge, Button, Card, Chip, Icon, IconButton, Input, Select, Switch, useConfirm } from '../components/ui';
 import { useAppStore } from '../store/AppStore';
 import { employeeScope } from '../lib/payroll';
 import { DISPLAY_OPERATORS, evaluateFormula, FORMULA_VARIABLES, formulaToString } from '../services';
@@ -22,7 +22,8 @@ function chipKind(token: string): 'operator' | 'number' | 'variable' {
 }
 
 export function FormulaBuilderPage() {
-  const { employees, formulaBlocks, saveFormulaBlock } = useAppStore();
+  const { employees, formulaBlocks, saveFormulaBlock, toggleFormulaBlock, deleteFormulaBlock } = useAppStore();
+  const confirm = useConfirm();
   const sampleEmployee = employees[0];
   const scope = employeeScope(sampleEmployee);
 
@@ -166,27 +167,37 @@ export function FormulaBuilderPage() {
           </div>
         </Card>
 
-        <Card title="Saved blocks">
+        <Card title="Saved blocks" subtitle="Load to edit · toggle to activate">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {formulaBlocks.map((block) => (
-              <button
-                key={block.id}
-                onClick={() => loadPreset(block)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', cursor: 'pointer', textAlign: 'left', width: '100%' }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--neutral-50)')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--surface-card)')}
-              >
-                <Icon name="formula" size={17} color="var(--indigo-600)" />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong)' }}>{block.label}</span>
-                    {!block.active && <Badge variant="neutral" size="sm">Inactive</Badge>}
+              <div key={block.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+                <button
+                  onClick={() => loadPreset(block)}
+                  title="Load into editor"
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, fontFamily: 'var(--font-sans)' }}
+                >
+                  <Icon name="formula" size={17} color="var(--indigo-600)" />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong)' }}>{block.label}</span>
+                      {!block.active && <Badge variant="neutral" size="sm">Inactive</Badge>}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{block.tokens.join(' ')}</div>
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{block.tokens.join(' ')}</div>
-                </div>
-                <Icon name="chevronRight" size={15} color="var(--text-subtle)" />
-              </button>
+                </button>
+                <Switch size="sm" checked={block.active} onChange={() => toggleFormulaBlock(block.id)} />
+                <IconButton
+                  icon="trash"
+                  label="Delete block"
+                  size="sm"
+                  onClick={async () => {
+                    const ok = await confirm({ title: 'Delete payroll block?', message: `“${block.label}” will be removed from the payroll run.`, confirmLabel: 'Delete', tone: 'danger', icon: 'trash' });
+                    if (ok) deleteFormulaBlock(block.id);
+                  }}
+                />
+              </div>
             ))}
+            {formulaBlocks.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No saved blocks yet.</div>}
           </div>
         </Card>
 

@@ -83,10 +83,10 @@ export function DashboardPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div className="gx-grid gx-grid-stats">
-        <StatCard label="Net payable — March" value="14,82,500" prefix="₹" icon="wallet" tone="brand" delta="+6.4%" footnote="vs February" />
-        <StatCard label="Present today" value="148" suffix="/ 162" icon="users" tone="green" footnote="91% attendance" />
-        <StatCard label="Pending approvals" value="12" icon="clock" tone="amber" footnote="across 5 branches" />
-        <StatCard label="Tiffin (CTC) — March" value="1,06,240" prefix="₹" icon="utensils" tone="blue" delta="+2.1%" footnote="paid on top of salary" />
+        <StatCard label="Net payable — March" value="14,82,500" prefix="₹" icon="wallet" tone="brand" delta="+6.4%" footnote="vs February" onClick={() => navigate('/salary')} />
+        <StatCard label="Present today" value="148" suffix="/ 162" icon="users" tone="green" footnote="91% attendance" onClick={() => navigate('/attendance')} />
+        <StatCard label="Pending approvals" value="12" icon="clock" tone="amber" footnote="across 5 branches" onClick={() => navigate('/salary')} />
+        <StatCard label="Tiffin (CTC) — March" value="1,06,240" prefix="₹" icon="utensils" tone="blue" delta="+2.1%" footnote="paid on top of salary" onClick={() => navigate('/tiffin')} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 16 }}>

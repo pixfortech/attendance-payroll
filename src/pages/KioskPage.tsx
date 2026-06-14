@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { Avatar, Badge, Button, Card, Icon, Input, Select, Switch } from '../components/ui';
 import { PROOF_META } from '../components/payroll/statusMeta';
 import { useAppStore } from '../store/AppStore';
-import { evaluateProof, isAutoApproved } from '../services/attendance';
 import { BRANCH_NAMES } from '../data';
 import type { Employee, ProofFactors, ProofStrength } from '../types';
 import logo from '../assets/ganguram-logo.png';
@@ -24,6 +23,7 @@ export function KioskPage() {
   const [pin, setPin] = useState('');
   const [selfie, setSelfie] = useState(false);
   const [manager, setManager] = useState(false);
+  const [doneMode, setDoneMode] = useState<'in' | 'out'>('in');
   const [result, setResult] = useState<{ strength: ProofStrength; approved: boolean } | null>(null);
 
   const branch = branches.find((b) => b.name === branchName);
@@ -42,8 +42,9 @@ export function KioskPage() {
     if (match) pick(match);
   };
 
-  const submit = () => {
-    if (!selected || !branch) return;
+  const submit = (m: 'in' | 'out') => {
+    if (!selected) return;
+    setDoneMode(m);
     // A shared branch device sits inside the branch: GPS + Wi-Fi are satisfied.
     const factors: ProofFactors = {
       qrMatched: false,
@@ -52,8 +53,8 @@ export function KioskPage() {
       selfieCaptured: selfie,
       managerApproved: manager,
     };
-    addCheckin({ employeeId: selected.id, employeeName: selected.name, branch: branchName, method: 'kiosk', factors, time: nowTime() });
-    setResult({ strength: evaluateProof(factors), approved: isAutoApproved(branch, factors) });
+    const res = addCheckin({ employeeId: selected.id, employeeName: selected.name, branch: branchName, method: 'kiosk', factors, time: nowTime() });
+    setResult(res);
     setStep('done');
   };
 
@@ -140,9 +141,10 @@ export function KioskPage() {
                 )}
               </div>
 
-              <div style={{ display: 'flex', gap: 10 }}>
-                <Button variant="ghost" full onClick={reset}>Cancel</Button>
-                <Button variant="primary" full iconLeft={<Icon name="badgeCheck" size={17} />} onClick={submit}>Mark attendance</Button>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <Button variant="ghost" onClick={reset}>Cancel</Button>
+                <Button variant="secondary" full iconLeft={<Icon name="logout" size={16} />} onClick={() => submit('out')}>Check out</Button>
+                <Button variant="primary" full iconLeft={<Icon name="badgeCheck" size={17} />} onClick={() => submit('in')}>Check in</Button>
               </div>
             </Card>
           )}
@@ -151,8 +153,8 @@ export function KioskPage() {
             <Card>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, textAlign: 'center', padding: '8px 0' }}>
                 <img src={gauri} alt="Gauri" style={{ height: 130, filter: 'drop-shadow(0 12px 22px rgba(38,37,74,0.16))' }} />
-                <h2 style={{ fontSize: 24, fontWeight: 800, color: 'var(--indigo-700)' }}>Attendance recorded</h2>
-                <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>Dhonnobad, {selected.name.split(' ')[0]} — checked in at {branchName}.</p>
+                <h2 style={{ fontSize: 24, fontWeight: 800, color: 'var(--indigo-700)' }}>{doneMode === 'in' ? 'Checked in' : 'Checked out'}</h2>
+                <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>Dhonnobad, {selected.name.split(' ')[0]} — checked {doneMode === 'in' ? 'in' : 'out'} at {branchName}.</p>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <Badge variant={PROOF_META[result.strength].variant} dot>{PROOF_META[result.strength].label}</Badge>
                   {result.approved ? <Badge variant="confirmed" icon="circleCheck">Approved</Badge> : <Badge variant="pending" icon="clock">Pending manager approval</Badge>}

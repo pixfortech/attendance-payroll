@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { QRCodeCanvas } from 'qrcode.react';
-import { Badge, Button, Card, Icon, IconButton, ProgressBar, StatCard } from '../components/ui';
+import { Badge, Button, Card, Icon, IconButton, ProgressBar, StatCard, useToast } from '../components/ui';
 import { BranchQrModal, QR_STATUS_META, qrPayload } from '../components/payroll/BranchQrModal';
 import { useAppStore } from '../store/AppStore';
 import { formatINR0 } from '../services';
@@ -11,6 +11,7 @@ const BASIS_LABEL = { fixed30: 'Fixed 30-day', calendar: 'Calendar-day' } as con
 
 export function BranchesPage() {
   const navigate = useNavigate();
+  const toast = useToast();
   const { branches, employees } = useAppStore();
   const [qrBranch, setQrBranch] = useState<Branch | null>(null);
   const totalStaff = branches.reduce((s, b) => s + b.staffCount, 0);
@@ -24,7 +25,8 @@ export function BranchesPage() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ flex: 1 }} />
         <Button variant="secondary" iconLeft={<Icon name="qr" size={16} />} onClick={() => window.open('/kiosk', '_blank')}>Open kiosk</Button>
-        <Button variant="primary" iconLeft={<Icon name="plus" size={17} />}>Add branch</Button>
+        {/* TODO(backend): branch creation form persisting to the backend. */}
+        <Button variant="primary" iconLeft={<Icon name="plus" size={17} />} onClick={() => toast('Branch creation will be enabled with backend setup', 'info')}>Add branch</Button>
       </div>
 
       <div className="gx-grid gx-grid-stats3">
@@ -52,7 +54,7 @@ export function BranchesPage() {
                     <Icon name="mapPin" size={13} /> {b.address}
                   </div>
                 </div>
-                <IconButton icon="pencil" label="Edit branch" size="sm" />
+                <IconButton icon="pencil" label="Edit branch" size="sm" onClick={() => setQrBranch(b)} />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px', marginTop: 18 }}>

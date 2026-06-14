@@ -7,7 +7,9 @@ import {
   Card,
   Icon,
   IconButton,
+  Input,
   KV,
+  Modal,
   ProgressBar,
   ResponsiveTable,
   SectionLabel,
@@ -15,13 +17,17 @@ import {
   Switch,
   Tabs,
   UploadZone,
+  useConfirm,
+  useToast,
   type Column,
   type TabItem,
 } from '../components/ui';
 import { RecordAdvanceModal } from '../components/payroll/RecordAdvanceModal';
 import { RecordPaymentModal } from '../components/payroll/RecordPaymentModal';
+import { EmployeeFormModal } from '../components/payroll/EmployeeFormModal';
 import { CONFIRMATION_META } from '../components/payroll/statusMeta';
 import { useAppStore } from '../store/AppStore';
+import type { DocumentKind, TiffinLabel } from '../types';
 import { employeeBreakdown, employeeOutstandingAdvance, employeeTiffinTotal } from '../lib/payroll';
 import { evaluateEligibility, formatINR, formatINR0, tiffinPerDay } from '../services';
 import { CURRENT_MONTH } from '../data';
@@ -32,11 +38,23 @@ const BASIS_LABEL: Record<Employee['basis'], string> = { fixed30: 'Fixed 30-day'
 export function EmployeeDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { getEmployee } = useAppStore();
+  const { getEmployee, setEmployeeStatus } = useAppStore();
+  const confirm = useConfirm();
   const emp = id ? getEmployee(id) : undefined;
   const [tab, setTab] = useState('profile');
   const [advOpen, setAdvOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+
+  const toggleStatus = async () => {
+    if (!emp) return;
+    if (emp.status === 'active') {
+      const ok = await confirm({ title: 'Mark as resigned?', message: `${emp.name} will be marked resigned and excluded from free-leave eligibility this month.`, confirmLabel: 'Mark resigned', tone: 'danger', icon: 'logout' });
+      if (ok) setEmployeeStatus(emp.id, 'resigned');
+    } else {
+      setEmployeeStatus(emp.id, 'active');
+    }
+  };
 
   if (!emp) {
     return (
@@ -85,8 +103,11 @@ export function EmployeeDetailPage() {
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="phone" size={13} />{emp.phone}</span>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 9 }}>
-            <Button variant="secondary" iconLeft={<Icon name="pencil" size={15} />}>Edit</Button>
+          <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
+            <Button variant="ghost" iconLeft={<Icon name={emp.status === 'active' ? 'logout' : 'circleCheck'} size={15} />} onClick={toggleStatus}>
+              {emp.status === 'active' ? 'Mark resigned' : 'Mark active'}
+            </Button>
+            <Button variant="secondary" iconLeft={<Icon name="pencil" size={15} />} onClick={() => setEditOpen(true)}>Edit</Button>
             <Button variant="primary" iconLeft={<Icon name="wallet" size={16} />} onClick={() => setPayOpen(true)}>Record payment</Button>
           </div>
         </div>
@@ -105,6 +126,7 @@ export function EmployeeDetailPage() {
 
       {advOpen && <AdvanceModalConnected emp={emp} onClose={() => setAdvOpen(false)} />}
       {payOpen && <PaymentModalConnected emp={emp} onClose={() => setPayOpen(false)} />}
+      {editOpen && <EmployeeFormModal employee={emp} onClose={() => setEditOpen(false)} />}
     </div>
   );
 }
@@ -250,7 +272,16 @@ function SalaryLeavePanel({ emp }: { emp: Employee }) {
 
 /* ---------- Advance ---------- */
 function AdvancePanel({ emp, onAdd }: { emp: Employee; onAdd: () => void }) {
+  const { updateAdvance, adjustAdvancesAgainstSalary } = useAppStore();
+  const confirm = useConfirm();
+  const [editAdv, setEditAdv] = useState<Employee['advances'][number] | null>(null);
   const outstanding = employeeOutstandingAdvance(emp);
+
+  const adjust = async () => {
+    const ok = await confirm({ title: 'Adjust advances against salary?', message: `${formatINR0(outstanding)} will be marked recovered against ${emp.name}'s salary.`, confirmLabel: 'Adjust now', tone: 'primary', icon: 'calculator' });
+    if (ok) adjustAdvancesAgainstSalary(emp.id);
+  };
+
   const columns: Column<Employee['advances'][number]>[] = [
     { key: 'date', header: 'Date', render: (a) => a.date },
     { key: 'amount', header: 'Amount', align: 'right', render: (a) => <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-strong)' }}>{formatINR0(a.amount)}</span> },
@@ -258,6 +289,7 @@ function AdvancePanel({ emp, onAdd }: { emp: Employee; onAdd: () => void }) {
     { key: 'ref', header: 'Reference', render: (a) => <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--indigo-600)', fontSize: 12 }}>{a.ref}</span> },
     { key: 'note', header: 'Note', render: (a) => <span style={{ color: 'var(--text-muted)' }}>{a.note}</span> },
     { key: 'status', header: 'Status', render: (a) => (a.cleared ? <Badge variant="confirmed" size="sm" dot>Cleared</Badge> : <Badge variant="pending" size="sm" dot>Outstanding</Badge>) },
+    { key: 'edit', header: '', align: 'right', render: (a) => <IconButton icon="pencil" label="Edit advance" size="sm" onClick={() => setEditAdv(a)} /> },
   ];
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16, alignItems: 'start' }}>
@@ -267,12 +299,22 @@ function AdvancePanel({ emp, onAdd }: { emp: Employee; onAdd: () => void }) {
         <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 4 }}>Recoverable against upcoming salary</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginTop: 18 }}>
           <Button variant="primary" full iconLeft={<Icon name="plus" size={16} />} onClick={onAdd}>Record advance</Button>
-          <Button variant="secondary" full iconLeft={<Icon name="calculator" size={16} />} disabled={outstanding === 0}>Adjust against salary</Button>
+          <Button variant="secondary" full iconLeft={<Icon name="calculator" size={16} />} disabled={outstanding === 0} onClick={adjust}>Adjust against salary</Button>
         </div>
       </Card>
       <Card title="Advance ledger" subtitle="Employee-wise advance history" padding="0">
-        <ResponsiveTable columns={columns} rows={emp.advances} rowKey={(a) => a.id} minWidth={560} emptyText="No advances recorded." />
+        <ResponsiveTable columns={columns} rows={emp.advances} rowKey={(a) => a.id} minWidth={620} emptyText="No advances recorded." />
       </Card>
+      {editAdv && (
+        <RecordAdvanceModal
+          initial={editAdv}
+          onClose={() => setEditAdv(null)}
+          onSave={(patch) => {
+            updateAdvance(emp.id, editAdv.id, patch);
+            setEditAdv(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -315,11 +357,20 @@ function PaymentsPanel({ emp, onAdd }: { emp: Employee; onAdd: () => void }) {
 
 /* ---------- Tiffin ---------- */
 function TiffinPanel({ emp }: { emp: Employee }) {
+  const { addEmployeeTiffinLabel, updateEmployeeTiffinLabel, removeEmployeeTiffinLabel, setHalfTiffin } = useAppStore();
+  const confirm = useConfirm();
+  const [labelModal, setLabelModal] = useState<{ mode: 'add' | 'edit'; label?: TiffinLabel } | null>(null);
   const perDay = tiffinPerDay(emp.tiffin);
   const total = employeeTiffinTotal(emp);
+
+  const removeLabel = async (t: TiffinLabel) => {
+    const ok = await confirm({ title: 'Remove tiffin label?', message: `Remove “${t.label}” (${formatINR0(t.amount)}/day) from ${emp.name}'s tiffin setup.`, confirmLabel: 'Remove', tone: 'danger', icon: 'trash' });
+    if (ok) removeEmployeeTiffinLabel(emp.id, t.id);
+  };
+
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 16, alignItems: 'start' }}>
-      <Card title="Tiffin / food allowance setup" subtitle="Company-paid CTC — never a deduction" action={<Button variant="tonal" size="sm" iconLeft={<Icon name="plus" size={15} />}>Add label</Button>}>
+      <Card title="Tiffin / food allowance setup" subtitle="Company-paid CTC — never a deduction" action={<Button variant="tonal" size="sm" iconLeft={<Icon name="plus" size={15} />} onClick={() => setLabelModal({ mode: 'add' })}>Add label</Button>}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {emp.tiffin.map((t) => (
             <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'var(--surface-inset)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
@@ -328,14 +379,16 @@ function TiffinPanel({ emp }: { emp: Employee }) {
               </span>
               <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: 'var(--text-strong)' }}>{t.label}</span>
               <span style={{ fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-strong)' }}>{formatINR0(t.amount)}</span>
-              <IconButton icon="pencil" label="Edit" size="sm" />
+              <IconButton icon="pencil" label="Edit label" size="sm" onClick={() => setLabelModal({ mode: 'edit', label: t })} />
+              <IconButton icon="trash" label="Remove label" size="sm" onClick={() => removeLabel(t)} />
             </div>
           ))}
+          {emp.tiffin.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '6px 2px' }}>No tiffin labels — add one to start.</div>}
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)' }}>
             <span>Per full day</span>
             <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-strong)', fontWeight: 700 }}>{formatINR0(perDay)}</span>
           </div>
-          <Switch checked={emp.halfTiffin} label="Half-day tiffin eligible" description="Pay 50% allowance on half-day attendance" />
+          <Switch checked={emp.halfTiffin} onChange={(v) => setHalfTiffin(emp.id, v)} label="Half-day tiffin eligible" description="Pay 50% allowance on half-day attendance" />
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface-inset)', borderRadius: 'var(--radius-sm)', padding: '9px 11px' }}>
             <Icon name="info" size={14} color="var(--indigo-500)" style={{ marginTop: 1 }} />
             No tiffin allowance is paid on paid-leave days.
@@ -352,12 +405,60 @@ function TiffinPanel({ emp }: { emp: Employee }) {
           <Badge variant="info" icon="utensils">Separately tracked &amp; reportable</Badge>
         </div>
       </Card>
+
+      {labelModal && (
+        <TiffinLabelModal
+          initial={labelModal.label}
+          onClose={() => setLabelModal(null)}
+          onSave={(label, amount) => {
+            if (labelModal.mode === 'edit' && labelModal.label) updateEmployeeTiffinLabel(emp.id, labelModal.label.id, { label, amount });
+            else addEmployeeTiffinLabel(emp.id, { label, amount });
+            setLabelModal(null);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function TiffinLabelModal({ initial, onClose, onSave }: { initial?: TiffinLabel; onClose: () => void; onSave: (label: string, amount: number) => void }) {
+  const [label, setLabel] = useState(initial?.label ?? '');
+  const [amount, setAmount] = useState(initial ? String(initial.amount) : '');
+  const valid = label.trim() && Number(amount) >= 0 && amount !== '';
+  return (
+    <Modal
+      icon="utensils"
+      title={initial ? 'Edit tiffin label' : 'Add tiffin label'}
+      subtitle="Company-paid CTC — taken daily at the branch"
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" full onClick={onClose}>Cancel</Button>
+          <Button variant="primary" full disabled={!valid} onClick={() => onSave(label.trim(), Number(amount))}>{initial ? 'Save' : 'Add label'}</Button>
+        </>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Input label="Label" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Breakfast" icon="utensils" />
+        <Input label="Amount per day" prefix="₹" mono value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
+      </div>
+    </Modal>
   );
 }
 
 /* ---------- Documents ---------- */
 function DocumentsPanel({ emp }: { emp: Employee }) {
+  const { addDocument } = useAppStore();
+  const [name, setName] = useState('');
+  const [type, setType] = useState<DocumentKind>('KYC');
+
+  // TODO(backend): persist the actual uploaded file bytes; we store metadata only.
+  const add = () => {
+    if (!name.trim()) return;
+    addDocument(emp.id, { name: name.trim(), type, status: 'pending' });
+    setName('');
+  };
+
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16, alignItems: 'start' }}>
       <Card title="Documents" subtitle="KYC, profile & contract">
@@ -375,10 +476,16 @@ function DocumentsPanel({ emp }: { emp: Employee }) {
               <IconButton icon="eye" label="View" size="sm" />
             </div>
           ))}
+          {emp.documents.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '6px 2px' }}>No documents yet.</div>}
         </div>
       </Card>
-      <Card title="Upload document">
-        <UploadZone label="Upload document (image / PDF)" />
+      <Card title="Add document">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Input label="Document name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Aadhaar card" icon="fileText" />
+          <Select label="Type" value={type} onChange={(e) => setType(e.target.value as DocumentKind)} options={['KYC', 'Profile', 'Contract']} />
+          <UploadZone label="Attach file (image / PDF)" />
+          <Button variant="primary" full iconLeft={<Icon name="plus" size={16} />} disabled={!name.trim()} onClick={add}>Add document</Button>
+        </div>
       </Card>
     </div>
   );
@@ -399,6 +506,7 @@ const PORTAL_ITEMS = [
 
 function LoginPanel({ emp }: { emp: Employee }) {
   const { setEmployeeLogin } = useAppStore();
+  const toast = useToast();
   const login = emp.login === 'enabled';
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.3fr', gap: 16, alignItems: 'start' }}>
@@ -413,7 +521,7 @@ function LoginPanel({ emp }: { emp: Employee }) {
           </div>
           <Switch checked={login} onChange={(next) => setEmployeeLogin(emp.id, next)} />
         </div>
-        <Button variant="secondary" full iconLeft={<Icon name="mail" size={16} />} disabled={!login}>Send portal invite</Button>
+        <Button variant="secondary" full iconLeft={<Icon name="mail" size={16} />} disabled={!login} onClick={() => toast(`Portal invite sent to ${emp.name}`)}>Send portal invite</Button>
         <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 12, lineHeight: 1.5 }}>
           <Icon name="shield" size={13} color="var(--indigo-500)" style={{ verticalAlign: '-2px', marginRight: 4 }} />
           Employees can confirm payments and request leave from their own login.
@@ -435,8 +543,18 @@ function LoginPanel({ emp }: { emp: Employee }) {
 
 /* ---------- Connected modals ---------- */
 function AdvanceModalConnected({ emp, onClose }: { emp: Employee; onClose: () => void }) {
-  const { addAdvance } = useAppStore();
-  return <RecordAdvanceModal onClose={onClose} onSave={(a) => { addAdvance(emp.id, a); onClose(); }} />;
+  const { addAdvance, addPayment } = useAppStore();
+  return (
+    <RecordAdvanceModal
+      onClose={onClose}
+      onSave={(a) => {
+        addAdvance(emp.id, a);
+        // The disbursement also enters the payment ledger for the employee to confirm.
+        addPayment(emp.id, { type: 'Advance', period: CURRENT_MONTH.short, date: a.date, amount: a.amount, method: a.method, ref: a.ref, status: 'pending' });
+        onClose();
+      }}
+    />
+  );
 }
 
 function PaymentModalConnected({ emp, onClose }: { emp: Employee; onClose: () => void }) {

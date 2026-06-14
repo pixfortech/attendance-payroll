@@ -1,23 +1,52 @@
 import { useState } from 'react';
-import { Avatar, Badge, Button, Card, Icon, IconButton, ResponsiveTable, Select, Tabs, type Column } from '../components/ui';
+import { Avatar, Badge, Button, Card, Icon, IconButton, ResponsiveTable, Select, Tabs, useConfirm, useToast, type Column } from '../components/ui';
 import { SalarySlip } from '../components/payroll/SalarySlip';
+import { RecordPaymentModal } from '../components/payroll/RecordPaymentModal';
 import { PAYROLL_STATUS_META } from '../components/payroll/statusMeta';
 import { useAppStore } from '../store/AppStore';
 import { employeeBreakdown } from '../lib/payroll';
+import { downloadCsv } from '../lib/download';
 import { formatINR } from '../services';
-import { BRANCH_NAMES } from '../data';
+import { BRANCH_NAMES, CURRENT_MONTH } from '../data';
 import type { Employee, PayrollStatus } from '../types';
 
 const mono = { fontFamily: 'var(--font-mono)' as const };
 
 export function SalaryPage() {
-  const { employees } = useAppStore();
+  const { employees, approveAllPending, setPayrollStatus, addPayment } = useAppStore();
+  const confirm = useConfirm();
+  const toast = useToast();
   const [tab, setTab] = useState<'all' | PayrollStatus>('all');
   const [branch, setBranch] = useState('');
   const [slip, setSlip] = useState<Employee | null>(null);
+  const [payFor, setPayFor] = useState<Employee | null>(null);
 
   const count = (s: PayrollStatus) => employees.filter((e) => e.payrollStatus === s).length;
   const rows = employees.filter((e) => (tab === 'all' || e.payrollStatus === tab) && (!branch || e.branch === branch));
+
+  const approveAll = async () => {
+    const pending = count('pending');
+    if (!pending) return toast('No pending salaries', 'info');
+    const ok = await confirm({ title: 'Approve all pending salaries?', message: `${pending} pending salary${pending > 1 ? 'ies' : ''} will be approved for ${CURRENT_MONTH.label}.`, confirmLabel: 'Approve all', tone: 'primary', icon: 'badgeCheck' });
+    if (ok) approveAllPending();
+  };
+
+  const exportCsv = () =>
+    downloadCsv(`salary-${CURRENT_MONTH.short}.csv`, [
+      ['Employee', 'ID', 'Branch', 'Gross', 'Worked', 'Leave used', 'Free leave', 'Deduction', 'Tiffin CTC', 'Net payable', 'Status'],
+      ...rows.map((r) => {
+        const b = employeeBreakdown(r);
+        return [r.name, r.id, r.branch, r.salary, r.worked, r.leaveUsed, b.freeLeaveAllowed, b.leaveDeduction, b.tiffinTotal, b.finalPayable, r.payrollStatus];
+      }),
+    ]);
+
+  const StatusAction = ({ r, full }: { r: Employee; full?: boolean }) => {
+    if (r.payrollStatus === 'pending' || r.payrollStatus === 'hold')
+      return <Button variant="secondary" size="sm" full={full} iconLeft={<Icon name="badgeCheck" size={14} />} onClick={() => setPayrollStatus(r.id, 'approved')}>Approve</Button>;
+    if (r.payrollStatus === 'approved')
+      return <Button variant="accent" size="sm" full={full} iconLeft={<Icon name="wallet" size={14} />} onClick={() => setPayFor(r)}>Mark paid</Button>;
+    return <Badge variant="paid" size="sm" dot>Paid</Badge>;
+  };
 
   const columns: Column<Employee>[] = [
     {
@@ -61,7 +90,17 @@ export function SalaryPage() {
     { key: 'tiffin', header: 'Tiffin CTC', align: 'right', render: (r) => <span style={{ ...mono, color: 'var(--blue-600)' }}>+{formatINR(employeeBreakdown(r).tiffinTotal)}</span> },
     { key: 'net', header: 'Net payable', align: 'right', render: (r) => <span style={{ ...mono, fontWeight: 700, color: 'var(--text-strong)' }}>{formatINR(employeeBreakdown(r).finalPayable)}</span> },
     { key: 'status', header: 'Status', render: (r) => { const s = PAYROLL_STATUS_META[r.payrollStatus]; return <Badge variant={s.variant} dot>{s.label}</Badge>; } },
-    { key: 'action', header: '', align: 'right', render: (r) => <IconButton icon="eye" label="View slip" size="sm" onClick={() => setSlip(r)} /> },
+    {
+      key: 'action',
+      header: '',
+      align: 'right',
+      render: (r) => (
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <StatusAction r={r} />
+          <IconButton icon="eye" label="View slip" size="sm" onClick={() => setSlip(r)} />
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -81,8 +120,9 @@ export function SalaryPage() {
         <div style={{ minWidth: 160, flex: '1 1 160px' }}>
           <Select value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="All branches" options={['', ...BRANCH_NAMES]} />
         </div>
-        <Button variant="secondary" iconLeft={<Icon name="download" size={16} />}>Excel</Button>
-        <Button variant="accent" iconLeft={<Icon name="badgeCheck" size={17} />}>Approve all pending</Button>
+        <Button variant="ghost" iconLeft={<Icon name="refresh" size={16} />} onClick={() => toast(`Salary recalculated for ${CURRENT_MONTH.label}`)}>Recalculate</Button>
+        <Button variant="secondary" iconLeft={<Icon name="download" size={16} />} onClick={exportCsv}>Excel</Button>
+        <Button variant="accent" iconLeft={<Icon name="badgeCheck" size={17} />} onClick={approveAll}>Approve all pending</Button>
       </div>
 
       <Card padding="0">
@@ -90,7 +130,7 @@ export function SalaryPage() {
           columns={columns}
           rows={rows}
           rowKey={(r) => r.id}
-          minWidth={980}
+          minWidth={1040}
           emptyText="No salaries match this filter."
           mobileCard={(r) => {
             const b = employeeBreakdown(r);
@@ -115,7 +155,10 @@ export function SalaryPage() {
                   <Kv label="Leave" value={`${r.leaveUsed} / ${b.freeLeaveAllowed}`} />
                   <Kv label="Deduction" value={b.leaveDeduction > 0 ? '−' + formatINR(b.leaveDeduction) : '—'} color={b.leaveDeduction > 0 ? 'var(--coral-600)' : undefined} />
                 </div>
-                <Button variant="secondary" full size="sm" iconLeft={<Icon name="eye" size={15} />} onClick={() => setSlip(r)}>View salary slip</Button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <StatusAction r={r} full />
+                  <Button variant="secondary" full size="sm" iconLeft={<Icon name="eye" size={15} />} onClick={() => setSlip(r)}>Slip</Button>
+                </div>
               </div>
             );
           }}
@@ -123,6 +166,18 @@ export function SalaryPage() {
       </Card>
 
       {slip && <SalarySlip employee={slip} onClose={() => setSlip(null)} />}
+      {payFor && (
+        <RecordPaymentModal
+          defaultType="Salary"
+          defaultAmount={String(employeeBreakdown(payFor).finalPayable)}
+          onClose={() => setPayFor(null)}
+          onSave={(p) => {
+            addPayment(payFor.id, p);
+            setPayrollStatus(payFor.id, 'paid');
+            setPayFor(null);
+          }}
+        />
+      )}
     </div>
   );
 }

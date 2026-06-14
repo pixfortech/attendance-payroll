@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { ToastProvider, ConfirmProvider } from './components/ui';
 import { AppStoreProvider } from './store/AppStore';
 import { AdminLayout } from './components/layout/AdminLayout';
 import { DashboardPage } from './pages/DashboardPage';
@@ -19,9 +20,11 @@ import { PortalPage } from './pages/portal/PortalPage';
 
 export function App() {
   return (
-    <AppStoreProvider>
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <Routes>
+    <ToastProvider>
+      <ConfirmProvider>
+        <AppStoreProvider>
+          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+            <Routes>
           <Route element={<AdminLayout />}>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/employees" element={<EmployeeMasterPage />} />
@@ -40,8 +43,10 @@ export function App() {
           <Route path="/kiosk" element={<KioskPage />} />
           <Route path="/portal" element={<PortalPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </BrowserRouter>
-    </AppStoreProvider>
+            </Routes>
+          </BrowserRouter>
+        </AppStoreProvider>
+      </ConfirmProvider>
+    </ToastProvider>
   );
 }

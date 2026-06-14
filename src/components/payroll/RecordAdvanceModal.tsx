@@ -5,12 +5,13 @@ import type { Advance, PaymentMethod } from '../../types';
 
 const METHODS: PaymentMethod[] = ['Cash', 'UPI', 'Bank Transfer', 'Cheque', 'Other'];
 
-export function RecordAdvanceModal({ onClose, onSave }: { onClose: () => void; onSave: (advance: Omit<Advance, 'id'>) => void }) {
-  const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(`12 ${CURRENT_MONTH.short}`);
-  const [method, setMethod] = useState<PaymentMethod>('Cash');
-  const [ref, setRef] = useState('');
-  const [note, setNote] = useState('');
+export function RecordAdvanceModal({ onClose, onSave, initial }: { onClose: () => void; onSave: (advance: Omit<Advance, 'id'>) => void; initial?: Advance }) {
+  const editing = !!initial;
+  const [amount, setAmount] = useState(initial ? String(initial.amount) : '');
+  const [date, setDate] = useState(initial?.date ?? `12 ${CURRENT_MONTH.short}`);
+  const [method, setMethod] = useState<PaymentMethod>(initial?.method ?? 'Cash');
+  const [ref, setRef] = useState(initial?.ref ?? '');
+  const [note, setNote] = useState(initial?.note && initial.note !== '—' ? initial.note : '');
 
   const save = () =>
     onSave({
@@ -19,14 +20,14 @@ export function RecordAdvanceModal({ onClose, onSave }: { onClose: () => void; o
       method,
       ref: ref || 'ADV-0320',
       note: note || '—',
-      cleared: false,
+      cleared: initial?.cleared ?? false,
     });
 
   return (
     <Modal
       icon="banknote"
-      title="Record advance"
-      subtitle="Add to the employee's advance ledger"
+      title={editing ? 'Edit advance' : 'Record advance'}
+      subtitle={editing ? 'Update this advance entry' : "Add to the employee's advance ledger"}
       onClose={onClose}
       footer={
         <>
@@ -34,7 +35,7 @@ export function RecordAdvanceModal({ onClose, onSave }: { onClose: () => void; o
             Cancel
           </Button>
           <Button variant="primary" full onClick={save}>
-            Save advance
+            {editing ? 'Save changes' : 'Save advance'}
           </Button>
         </>
       }

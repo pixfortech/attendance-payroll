@@ -17,7 +17,11 @@ function setViewport(isMobile: boolean) {
   })) as typeof window.matchMedia;
 }
 
-beforeEach(() => setViewport(false)); // default: desktop
+beforeEach(() => {
+  localStorage.clear(); // isolate persisted store between tests
+  window.history.pushState({}, '', '/'); // reset route (jsdom history persists)
+  setViewport(false); // default: desktop
+});
 afterEach(cleanup);
 
 describe('App — smoke & navigation', () => {
@@ -57,5 +61,20 @@ describe('App — smoke & navigation', () => {
     setViewport(true);
     render(<App />);
     expect(screen.getByLabelText('Open menu')).toBeTruthy();
+  });
+
+  it('dashboard stat cards navigate through to their pages', () => {
+    render(<App />);
+    fireEvent.click(screen.getByText('Net payable — March'));
+    expect(screen.getByRole('heading', { level: 1, name: 'Salary' })).toBeTruthy();
+  });
+
+  it('approving a salary row mutates state and re-renders', () => {
+    render(<App />);
+    fireEvent.click(within(screen.getByRole('complementary')).getByText('Salary'));
+    const before = screen.getAllByText('Approve').length;
+    expect(before).toBeGreaterThan(0);
+    fireEvent.click(screen.getAllByText('Approve')[0]);
+    expect(screen.getAllByText('Approve').length).toBe(before - 1);
   });
 });

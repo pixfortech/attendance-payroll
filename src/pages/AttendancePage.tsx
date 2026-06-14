@@ -4,39 +4,21 @@ import { PROOF_META } from '../components/payroll/statusMeta';
 import { useAppStore } from '../store/AppStore';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import { PROOF_METHOD_LABEL } from '../services/attendance';
+import { downloadCsv } from '../lib/download';
 import { BRANCH_NAMES, CURRENT_MONTH } from '../data';
+import { MARK_CYCLE, workedFromMarks, countMark, type Mark } from '../data/attendanceMarks';
 import type { AttendanceRecord } from '../types';
 import type { IconName } from '../components/ui';
 
-type Mark = 'P' | 'A' | 'H' | 'L' | 'O';
-const MARK: Record<Mark, { bg: string; fg: string; bd: string }> = {
-  P: { bg: 'var(--green-50)', fg: 'var(--green-700)', bd: 'var(--green-100)' },
-  A: { bg: 'var(--coral-50)', fg: 'var(--coral-700)', bd: 'var(--coral-100)' },
-  H: { bg: 'var(--amber-50)', fg: 'var(--amber-700)', bd: 'var(--amber-100)' },
-  L: { bg: 'var(--blue-50)', fg: 'var(--blue-700)', bd: 'var(--blue-100)' },
-  O: { bg: 'var(--neutral-100)', fg: 'var(--neutral-400)', bd: 'var(--neutral-200)' },
+const MARK: Record<Mark, { bg: string; fg: string; bd: string; label: string }> = {
+  P: { bg: 'var(--green-50)', fg: 'var(--green-700)', bd: 'var(--green-100)', label: 'Present' },
+  A: { bg: 'var(--coral-50)', fg: 'var(--coral-700)', bd: 'var(--coral-100)', label: 'Absent' },
+  H: { bg: 'var(--amber-50)', fg: 'var(--amber-700)', bd: 'var(--amber-100)', label: 'Half-day' },
+  L: { bg: 'var(--blue-50)', fg: 'var(--blue-700)', bd: 'var(--blue-100)', label: 'Paid leave' },
+  O: { bg: 'var(--neutral-100)', fg: 'var(--neutral-400)', bd: 'var(--neutral-200)', label: 'Week-off' },
 };
 const DAYS = CURRENT_MONTH.workingDays;
-
-function genRow(seed: number): Mark[] {
-  const out: Mark[] = [];
-  let s = seed;
-  for (let d = 1; d <= DAYS; d++) {
-    s = (s * 9301 + 49297) % 233280;
-    const r = s / 233280;
-    if (d % 7 === 0) out.push('O');
-    else if (r > 0.93) out.push('A');
-    else if (r > 0.88) out.push('L');
-    else if (r > 0.84) out.push('H');
-    else out.push('P');
-  }
-  return out;
-}
-function hashSeed(s: string): number {
-  let h = 7;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 100000;
-  return h;
-}
+const nextMark = (m: Mark): Mark => MARK_CYCLE[(MARK_CYCLE.indexOf(m) + 1) % MARK_CYCLE.length];
 
 const METHODS: { icon: IconName; name: string; desc: string; status: string; tone: 'paid' | 'pending' | 'neutral' }[] = [
   { icon: 'qr', name: 'QR attendance', desc: 'Branch QR scan check-in', status: 'Live', tone: 'paid' },
@@ -47,21 +29,22 @@ const METHODS: { icon: IconName; name: string; desc: string; status: string; ton
 ];
 
 export function AttendancePage() {
-  const { employees, checkins } = useAppStore();
+  const { employees, checkins, attendanceMarks, setAttendanceMark } = useAppStore();
   const isMobile = useIsMobile();
   const [view, setView] = useState('grid');
   const [branch, setBranch] = useState(BRANCH_NAMES[0]);
 
-  const staff = employees.map((e) => {
-    const days = genRow(hashSeed(e.id));
-    const present = days.filter((d) => d === 'P').length;
-    const half = days.filter((d) => d === 'H').length;
-    const absent = days.filter((d) => d === 'A').length;
-    const leave = days.filter((d) => d === 'L').length;
-    return { id: e.id, name: e.name, role: e.role, days, present, absent, leave, worked: present + half * 0.5 };
-  });
+  const gridStaff = employees.filter((e) => e.branch === branch).map((e) => ({ id: e.id, name: e.name, role: e.role, days: attendanceMarks[e.id] ?? Array.from({ length: DAYS }, () => 'O' as Mark) }));
 
   const pendingApproval = checkins.filter((c) => !c.approved).length;
+
+  const cycle = (empId: string, dayIndex: number, current: Mark) => setAttendanceMark(empId, dayIndex, nextMark(current));
+
+  const exportGrid = () =>
+    downloadCsv(`attendance-${branch}-${CURRENT_MONTH.short}.csv`, [
+      ['Employee', 'Role', ...Array.from({ length: DAYS }, (_, i) => String(i + 1)), 'Worked'],
+      ...gridStaff.map((s) => [s.name, s.role, ...s.days, workedFromMarks(s.days)]),
+    ]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -82,35 +65,52 @@ export function AttendancePage() {
             <Select value={branch} onChange={(e) => setBranch(e.target.value)} options={BRANCH_NAMES} />
           </div>
         )}
-        <Button variant="secondary" iconLeft={<Icon name="download" size={16} />}>Export</Button>
+        {view === 'grid' && <Button variant="secondary" iconLeft={<Icon name="download" size={16} />} onClick={exportGrid}>Export</Button>}
       </div>
 
-      {view === 'grid' && (isMobile ? <MonthGridMobile staff={staff} branch={branch} /> : <MonthGridDesktop staff={staff} branch={branch} />)}
+      {view === 'grid' && (isMobile ? <MonthGridMobile staff={gridStaff} branch={branch} onCycle={cycle} /> : <MonthGridDesktop staff={gridStaff} branch={branch} onCycle={cycle} />)}
       {view === 'proof' && <ProofView checkins={checkins} />}
       {view === 'methods' && <MethodsView branch={branch} />}
     </div>
   );
 }
 
-type Staff = { id: string; name: string; role: string; days: Mark[]; present: number; absent: number; leave: number; worked: number };
+type Staff = { id: string; name: string; role: string; days: Mark[] };
+type CycleFn = (empId: string, dayIndex: number, current: Mark) => void;
 
 function Legend() {
   return (
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-      {([['P', 'Present', 'paid'], ['A', 'Absent', 'absent'], ['H', 'Half', 'half'], ['L', 'Leave', 'leave'], ['O', 'Off', 'neutral']] as const).map(([k, l, v]) => (
-        <Badge key={k} variant={v} size="sm" dot>{l}</Badge>
+      {(['P', 'A', 'H', 'L', 'O'] as Mark[]).map((k) => (
+        <Badge key={k} variant={k === 'P' ? 'paid' : k === 'A' ? 'absent' : k === 'H' ? 'half' : k === 'L' ? 'leave' : 'neutral'} size="sm" dot>
+          {MARK[k].label}
+        </Badge>
       ))}
     </div>
   );
 }
 
-function MonthGridDesktop({ staff, branch }: { staff: Staff[]; branch: string }) {
+function MarkCell({ mark, onClick, size = 22 }: { mark: Mark; onClick: () => void; size?: number }) {
+  const m = MARK[mark];
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={`${m.label} — tap to change`}
+      style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: size, height: size, borderRadius: 6, fontSize: 10.5, fontWeight: 700, background: m.bg, color: m.fg, border: `1px solid ${m.bd}`, cursor: 'pointer', padding: 0, fontFamily: 'var(--font-sans)' }}
+    >
+      {mark === 'O' ? '·' : mark}
+    </button>
+  );
+}
+
+function MonthGridDesktop({ staff, branch, onCycle }: { staff: Staff[]; branch: string; onCycle: CycleFn }) {
   return (
     <Card padding="0">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', flexWrap: 'wrap', gap: 10 }}>
         <div>
           <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-strong)' }}>Attendance — {CURRENT_MONTH.label}</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 2 }}>{branch} · {DAYS} working days · tap a cell to edit</p>
+          <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 2 }}>{branch} · {DAYS} working days · tap a cell to change mark</p>
         </div>
         <Legend />
       </div>
@@ -137,16 +137,13 @@ function MonthGridDesktop({ staff, branch }: { staff: Staff[]; branch: string })
                     </div>
                   </div>
                 </td>
-                {s.days.map((d, i) => {
-                  const m = MARK[d];
-                  return (
-                    <td key={i} style={{ textAlign: 'center', padding: '4px 2px', borderBottom: '1px solid var(--border-subtle)' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: 6, fontSize: 10.5, fontWeight: 700, background: m.bg, color: m.fg, border: `1px solid ${m.bd}` }}>{d === 'O' ? '·' : d}</span>
-                    </td>
-                  );
-                })}
+                {s.days.map((d, i) => (
+                  <td key={i} style={{ textAlign: 'center', padding: '4px 2px', borderBottom: '1px solid var(--border-subtle)' }}>
+                    <MarkCell mark={d} onClick={() => onCycle(s.id, i, d)} />
+                  </td>
+                ))}
                 <td style={{ textAlign: 'right', padding: '8px 16px', borderBottom: '1px solid var(--border-subtle)', whiteSpace: 'nowrap' }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-strong)', fontFamily: 'var(--font-mono)' }}>{s.worked}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-strong)', fontFamily: 'var(--font-mono)' }}>{workedFromMarks(s.days)}</span>
                   <span style={{ fontSize: 11, color: 'var(--text-muted)' }}> d</span>
                 </td>
               </tr>
@@ -158,14 +155,14 @@ function MonthGridDesktop({ staff, branch }: { staff: Staff[]; branch: string })
   );
 }
 
-function MonthGridMobile({ staff, branch }: { staff: Staff[]; branch: string }) {
+function MonthGridMobile({ staff, branch, onCycle }: { staff: Staff[]; branch: string; onCycle: CycleFn }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <Card>
+      <Card bodyStyle={{ padding: 14 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div>
             <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-strong)' }}>Attendance — {CURRENT_MONTH.label}</h3>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{branch} · {DAYS} working days</p>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{branch} · tap a day to change mark</p>
           </div>
           <Legend />
         </div>
@@ -179,22 +176,19 @@ function MonthGridMobile({ staff, branch }: { staff: Staff[]; branch: string }) 
               <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{s.role}</div>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <span style={{ fontSize: 18, fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--text-strong)' }}>{s.worked}</span>
-              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}> d worked</span>
+              <span style={{ fontSize: 18, fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--text-strong)' }}>{workedFromMarks(s.days)}</span>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}> d</span>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 12, marginBottom: 10, fontSize: 12 }}>
-            <span style={{ color: 'var(--green-700)', fontWeight: 600 }}>{s.present} present</span>
-            <span style={{ color: 'var(--blue-700)', fontWeight: 600 }}>{s.leave} leave</span>
-            <span style={{ color: 'var(--coral-700)', fontWeight: 600 }}>{s.absent} absent</span>
+            <span style={{ color: 'var(--green-700)', fontWeight: 600 }}>{countMark(s.days, 'P')} present</span>
+            <span style={{ color: 'var(--blue-700)', fontWeight: 600 }}>{countMark(s.days, 'L')} leave</span>
+            <span style={{ color: 'var(--coral-700)', fontWeight: 600 }}>{countMark(s.days, 'A')} absent</span>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-            {s.days.map((d, i) => {
-              const m = MARK[d];
-              return (
-                <span key={i} title={`Day ${i + 1}`} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: 6, fontSize: 10, fontWeight: 700, background: m.bg, color: m.fg, border: `1px solid ${m.bd}` }}>{d === 'O' ? '·' : d}</span>
-              );
-            })}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {s.days.map((d, i) => (
+              <MarkCell key={i} mark={d} onClick={() => onCycle(s.id, i, d)} />
+            ))}
           </div>
         </Card>
       ))}

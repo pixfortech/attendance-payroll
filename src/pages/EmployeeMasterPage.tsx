@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Avatar, Badge, Button, Card, Icon, ResponsiveTable, Select, type Column } from '../components/ui';
+import { EmployeeFormModal } from '../components/payroll/EmployeeFormModal';
 import { useAppStore } from '../store/AppStore';
 import { employeeBreakdown } from '../lib/payroll';
+import { downloadCsv } from '../lib/download';
 import { formatINR0 } from '../services';
 import { BRANCH_NAMES } from '../data';
 import type { Employee } from '../types';
@@ -14,6 +16,7 @@ export function EmployeeMasterPage() {
   const { employees } = useAppStore();
   const [branch, setBranch] = useState('');
   const [query, setQuery] = useState('');
+  const [addOpen, setAddOpen] = useState(false);
 
   const rows = employees.filter((e) => {
     const matchBranch = !branch || e.branch === branch;
@@ -21,6 +24,12 @@ export function EmployeeMasterPage() {
     const matchQuery = !q || e.name.toLowerCase().includes(q) || e.id.toLowerCase().includes(q) || e.role.toLowerCase().includes(q);
     return matchBranch && matchQuery;
   });
+
+  const exportCsv = () =>
+    downloadCsv('ganguram-employees.csv', [
+      ['ID', 'Name', 'Branch', 'Role', 'Joined', 'Tenure (months)', 'Salary', 'Status', 'Login'],
+      ...rows.map((e) => [e.id, e.name, e.branch, e.role, e.joined, e.tenureMonths, e.salary, e.status, e.login]),
+    ]);
 
   const columns: Column<Employee>[] = [
     {
@@ -60,8 +69,8 @@ export function EmployeeMasterPage() {
         <div style={{ flex: '1 1 160px', minWidth: 0 }}>
           <Select value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="All branches" options={['', ...BRANCH_NAMES]} />
         </div>
-        <Button variant="secondary" iconLeft={<Icon name="download" size={16} />}>Export</Button>
-        <Button variant="primary" iconLeft={<Icon name="plus" size={17} />}>Add employee</Button>
+        <Button variant="secondary" iconLeft={<Icon name="download" size={16} />} onClick={exportCsv}>Export</Button>
+        <Button variant="primary" iconLeft={<Icon name="plus" size={17} />} onClick={() => setAddOpen(true)}>Add employee</Button>
       </div>
 
       <Card padding="0">
@@ -98,6 +107,8 @@ export function EmployeeMasterPage() {
           }}
         />
       </Card>
+
+      {addOpen && <EmployeeFormModal onClose={() => setAddOpen(false)} />}
     </div>
   );
 }
