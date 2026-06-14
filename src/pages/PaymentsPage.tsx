@@ -50,7 +50,7 @@ export function PaymentsPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      <div className="gx-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+      <div className="gx-grid gx-grid-stats3">
         <StatCard label="Pending confirmation" value={count('pending')} icon="clock" tone="amber" footnote="awaiting employee" />
         <StatCard label="Confirmed by employee" value={count('confirmed')} icon="badgeCheck" tone="green" footnote="receipt acknowledged" />
         <StatCard label="Disputed / issue raised" value={count('disputed')} icon="alert" tone="coral" footnote="needs review" />

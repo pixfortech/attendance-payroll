@@ -28,7 +28,7 @@ export function TiffinPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      <div className="gx-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+      <div className="gx-grid gx-grid-stats3">
         <StatCard label="Tiffin CTC — March" value={formatINR0(totalTiffin).replace('₹', '')} prefix="₹" icon="utensils" tone="blue" footnote="paid on top of salary" />
         <StatCard label="Tiffin days" value={totalDays} icon="calendar" tone="brand" footnote="across all employees" />
         <StatCard label="Standard rate / day" value={formatINR0(perDay).replace('₹', '')} prefix="₹" icon="rupee" tone="green" footnote="breakfast + lunch / dinner" />

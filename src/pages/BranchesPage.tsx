@@ -27,7 +27,7 @@ export function BranchesPage() {
         <Button variant="primary" iconLeft={<Icon name="plus" size={17} />}>Add branch</Button>
       </div>
 
-      <div className="gx-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+      <div className="gx-grid gx-grid-stats3">
         <StatCard label="Branches" value={branches.length} icon="building" tone="brand" footnote="all active" />
         <StatCard label="Total staff" value={totalStaff} icon="users" tone="blue" footnote={`${employees.length} in sample data`} />
         <StatCard label="Net payable — March" value={formatINR0(totalPayable).replace('₹', '')} prefix="₹" icon="wallet" tone="green" footnote="across all branches" />

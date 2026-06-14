@@ -38,7 +38,7 @@ export function ReportsPage() {
         <Badge variant="brand" icon="download">11 export formats</Badge>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+      <div className="gx-grid gx-grid-stats3">
         {REPORTS.map((r) => {
           const [bg, fg] = CHIP[r.tone];
           return (

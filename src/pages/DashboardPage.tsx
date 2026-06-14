@@ -82,7 +82,7 @@ export function DashboardPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div className="gx-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+      <div className="gx-grid gx-grid-stats">
         <StatCard label="Net payable — March" value="14,82,500" prefix="₹" icon="wallet" tone="brand" delta="+6.4%" footnote="vs February" />
         <StatCard label="Present today" value="148" suffix="/ 162" icon="users" tone="green" footnote="91% attendance" />
         <StatCard label="Pending approvals" value="12" icon="clock" tone="amber" footnote="across 5 branches" />

@@ -119,7 +119,7 @@ function HomeSection({ emp, onSlip, onGoLeave }: { emp: Employee; onSlip: () => 
         </div>
       </div>
 
-      <div className="gx-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+      <div className="gx-grid gx-grid-stats">
         <StatCard label="Worked days" value={emp.worked} suffix={`/ ${CURRENT_MONTH.workingDays}`} icon="calendar" tone="brand" />
         <StatCard label="Free leave left" value={b.leaveUnused} suffix="/ 4" icon="circleCheck" tone="green" />
         <StatCard label="Tiffin (CTC)" value={formatINR0(employeeTiffinTotal(emp)).replace('₹', '')} prefix="₹" icon="utensils" tone="blue" />
@@ -174,7 +174,7 @@ function AttendanceSection({ emp }: { emp: Employee }) {
   const b = employeeBreakdown(emp);
   return (
     <>
-      <div className="gx-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+      <div className="gx-grid gx-grid-stats">
         <StatCard label="Worked" value={emp.worked} suffix={`/ ${CURRENT_MONTH.workingDays}`} icon="calendar" tone="brand" />
         <StatCard label="Present" value={emp.daysPresent} icon="circleCheck" tone="green" />
         <StatCard label="Absent" value={emp.daysAbsent} icon="x" tone="coral" />
