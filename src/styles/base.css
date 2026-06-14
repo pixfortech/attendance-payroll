@@ -5,6 +5,11 @@
 
 html { -webkit-text-size-adjust: 100%; }
 
+/* Mobile-first: never allow the page itself to scroll sideways. Individual
+   scroll regions (wide tables) opt in with .gx-scroll on their own container. */
+html, body, #root { max-width: 100%; overflow-x: hidden; }
+img { max-width: 100%; }
+
 body {
   margin: 0;
   font-family: var(--font-sans);
@@ -41,6 +46,15 @@ button { font-family: inherit; }
 
 /* Native inputs inherit the brand font */
 input, select, textarea { font-family: var(--font-sans); }
+
+/* ---- Mobile-first responsive helpers ---- */
+@media (max-width: 768px) {
+  /* Collapse inline CSS-grid layouts to a single column on phones.
+     (Data tables use ResponsiveTable, which renders cards on mobile instead.) */
+  [style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+  /* Keep compact KPI/stat rows two-up so the dashboard stays scannable. */
+  .gx-stats { grid-template-columns: 1fr 1fr !important; }
+}
 
 /* Print — show only the salary slip when printing */
 @media print {

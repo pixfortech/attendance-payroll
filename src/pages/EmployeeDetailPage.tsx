@@ -9,11 +9,13 @@ import {
   IconButton,
   KV,
   ProgressBar,
+  ResponsiveTable,
   SectionLabel,
   Select,
   Switch,
   Tabs,
   UploadZone,
+  type Column,
   type TabItem,
 } from '../components/ui';
 import { RecordAdvanceModal } from '../components/payroll/RecordAdvanceModal';
@@ -24,19 +26,6 @@ import { employeeBreakdown, employeeOutstandingAdvance, employeeTiffinTotal } fr
 import { evaluateEligibility, formatINR, formatINR0, tiffinPerDay } from '../services';
 import { CURRENT_MONTH } from '../data';
 import type { Employee } from '../types';
-
-const cell: CSSProperties = { padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', fontSize: 13 };
-const th: CSSProperties = {
-  textAlign: 'left',
-  padding: '11px 16px',
-  fontSize: 11,
-  fontWeight: 700,
-  color: 'var(--text-subtle)',
-  letterSpacing: '0.04em',
-  textTransform: 'uppercase',
-  borderBottom: '1px solid var(--border-subtle)',
-  whiteSpace: 'nowrap',
-};
 
 const BASIS_LABEL: Record<Employee['basis'], string> = { fixed30: 'Fixed 30-day', calendar: 'Actual calendar-day' };
 
@@ -262,6 +251,14 @@ function SalaryLeavePanel({ emp }: { emp: Employee }) {
 /* ---------- Advance ---------- */
 function AdvancePanel({ emp, onAdd }: { emp: Employee; onAdd: () => void }) {
   const outstanding = employeeOutstandingAdvance(emp);
+  const columns: Column<Employee['advances'][number]>[] = [
+    { key: 'date', header: 'Date', render: (a) => a.date },
+    { key: 'amount', header: 'Amount', align: 'right', render: (a) => <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-strong)' }}>{formatINR0(a.amount)}</span> },
+    { key: 'method', header: 'Method', render: (a) => <Badge variant="neutral" size="sm">{a.method}</Badge> },
+    { key: 'ref', header: 'Reference', render: (a) => <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--indigo-600)', fontSize: 12 }}>{a.ref}</span> },
+    { key: 'note', header: 'Note', render: (a) => <span style={{ color: 'var(--text-muted)' }}>{a.note}</span> },
+    { key: 'status', header: 'Status', render: (a) => (a.cleared ? <Badge variant="confirmed" size="sm" dot>Cleared</Badge> : <Badge variant="pending" size="sm" dot>Outstanding</Badge>) },
+  ];
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16, alignItems: 'start' }}>
       <Card>
@@ -274,34 +271,7 @@ function AdvancePanel({ emp, onAdd }: { emp: Employee; onAdd: () => void }) {
         </div>
       </Card>
       <Card title="Advance ledger" subtitle="Employee-wise advance history" padding="0">
-        <div className="gx-scroll" style={{ overflowX: 'auto' }}>
-          <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 560 }}>
-            <thead>
-              <tr style={{ background: 'var(--surface-inset)' }}>
-                {['Date', 'Amount', 'Method', 'Reference', 'Note', 'Status'].map((h, i) => (
-                  <th key={i} style={{ ...th, textAlign: i === 1 ? 'right' : 'left' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {emp.advances.length === 0 && (
-                <tr>
-                  <td colSpan={6} style={{ ...cell, textAlign: 'center', color: 'var(--text-muted)', padding: 28 }}>No advances recorded.</td>
-                </tr>
-              )}
-              {emp.advances.map((a) => (
-                <tr key={a.id}>
-                  <td style={{ ...cell, whiteSpace: 'nowrap' }}>{a.date}</td>
-                  <td style={{ ...cell, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-strong)' }}>{formatINR0(a.amount)}</td>
-                  <td style={cell}><Badge variant="neutral" size="sm">{a.method}</Badge></td>
-                  <td style={{ ...cell, fontFamily: 'var(--font-mono)', color: 'var(--indigo-600)', fontSize: 12 }}>{a.ref}</td>
-                  <td style={{ ...cell, color: 'var(--text-muted)' }}>{a.note}</td>
-                  <td style={cell}>{a.cleared ? <Badge variant="confirmed" size="sm" dot>Cleared</Badge> : <Badge variant="pending" size="sm" dot>Outstanding</Badge>}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ResponsiveTable columns={columns} rows={emp.advances} rowKey={(a) => a.id} minWidth={560} emptyText="No advances recorded." />
       </Card>
     </div>
   );
@@ -310,6 +280,27 @@ function AdvancePanel({ emp, onAdd }: { emp: Employee; onAdd: () => void }) {
 /* ---------- Payments ---------- */
 function PaymentsPanel({ emp, onAdd }: { emp: Employee; onAdd: () => void }) {
   const { updatePaymentStatus } = useAppStore();
+  const columns: Column<Employee['payments'][number]>[] = [
+    { key: 'type', header: 'Type', render: (p) => <span style={{ fontWeight: 600, color: 'var(--text-strong)' }}>{p.type}</span> },
+    { key: 'period', header: 'Period', render: (p) => <span style={{ color: 'var(--text-muted)' }}>{p.period}</span> },
+    { key: 'date', header: 'Paid on', render: (p) => p.date },
+    { key: 'amount', header: 'Amount', align: 'right', render: (p) => <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-strong)' }}>{formatINR(p.amount)}</span> },
+    { key: 'method', header: 'Method', render: (p) => <Badge variant="neutral" size="sm">{p.method}</Badge> },
+    { key: 'ref', header: 'Reference', render: (p) => <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--indigo-600)', fontSize: 12 }}>{p.ref}</span>, hideOnMobile: true },
+    { key: 'receipt', header: 'Receipt', render: () => (<span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}><Icon name="paperclip" size={13} />View</span>), hideOnMobile: true },
+    { key: 'conf', header: 'Confirmation', render: (p) => { const m = CONFIRMATION_META[p.status]; return <Badge variant={m.variant} dot>{m.label}</Badge>; } },
+    {
+      key: 'action',
+      header: '',
+      align: 'right',
+      render: (p) =>
+        p.status === 'pending' ? (
+          <IconButton icon="bell" label="Send reminder" size="sm" onClick={() => updatePaymentStatus(emp.id, p.id, 'pending')} />
+        ) : p.status === 'disputed' ? (
+          <IconButton icon="refresh" label="Re-confirm" size="sm" onClick={() => updatePaymentStatus(emp.id, p.id, 'confirmed')} />
+        ) : null,
+    },
+  ];
   return (
     <Card
       title="Payment history & receipts"
@@ -317,46 +308,7 @@ function PaymentsPanel({ emp, onAdd }: { emp: Employee; onAdd: () => void }) {
       padding="0"
       action={<Button variant="primary" size="sm" iconLeft={<Icon name="plus" size={15} />} onClick={onAdd}>Record payment</Button>}
     >
-      <div className="gx-scroll" style={{ overflowX: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 920 }}>
-          <thead>
-            <tr style={{ background: 'var(--surface-inset)' }}>
-              {['Type', 'Period', 'Paid on', 'Amount', 'Method', 'Reference', 'Receipt', 'Confirmation', ''].map((h, i) => (
-                <th key={i} style={{ ...th, textAlign: i === 3 ? 'right' : 'left' }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {emp.payments.map((p) => {
-              const meta = CONFIRMATION_META[p.status];
-              return (
-                <tr key={p.id}>
-                  <td style={{ ...cell, fontWeight: 600, color: 'var(--text-strong)' }}>{p.type}</td>
-                  <td style={{ ...cell, color: 'var(--text-muted)' }}>{p.period}</td>
-                  <td style={{ ...cell, whiteSpace: 'nowrap' }}>{p.date}</td>
-                  <td style={{ ...cell, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-strong)' }}>{formatINR(p.amount)}</td>
-                  <td style={cell}><Badge variant="neutral" size="sm">{p.method}</Badge></td>
-                  <td style={{ ...cell, fontFamily: 'var(--font-mono)', color: 'var(--indigo-600)', fontSize: 12 }}>{p.ref}</td>
-                  <td style={cell}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}>
-                      <Icon name="paperclip" size={13} />View
-                    </span>
-                  </td>
-                  <td style={cell}><Badge variant={meta.variant} dot>{meta.label}</Badge></td>
-                  <td style={{ ...cell, textAlign: 'right' }}>
-                    {p.status === 'pending' && (
-                      <IconButton icon="bell" label="Send reminder" size="sm" onClick={() => updatePaymentStatus(emp.id, p.id, 'pending')} />
-                    )}
-                    {p.status === 'disputed' && (
-                      <IconButton icon="refresh" label="Re-confirm" size="sm" onClick={() => updatePaymentStatus(emp.id, p.id, 'confirmed')} />
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <ResponsiveTable columns={columns} rows={emp.payments} rowKey={(p) => p.id} minWidth={920} emptyText="No payments recorded." />
     </Card>
   );
 }

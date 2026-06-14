@@ -1,8 +1,23 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { App } from './App';
 
+// jsdom has no matchMedia; stub it so we can drive the responsive breakpoint.
+function setViewport(isMobile: boolean) {
+  window.matchMedia = ((query: string) => ({
+    matches: isMobile,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })) as typeof window.matchMedia;
+}
+
+beforeEach(() => setViewport(false)); // default: desktop
 afterEach(cleanup);
 
 describe('App — smoke & navigation', () => {
@@ -36,5 +51,11 @@ describe('App — smoke & navigation', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Subir Maity' })).toBeTruthy();
     expect(screen.getByText('Salary & Leave')).toBeTruthy();
     expect(screen.getByText('Login access')).toBeTruthy();
+  });
+
+  it('renders a hamburger menu on mobile viewports', () => {
+    setViewport(true);
+    render(<App />);
+    expect(screen.getByLabelText('Open menu')).toBeTruthy();
   });
 });

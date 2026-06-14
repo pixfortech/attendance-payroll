@@ -29,10 +29,10 @@ export function Button({
   style = {},
   ...rest
 }: ButtonProps) {
-  const sizes: Record<ButtonSize, { padding: string; fontSize: number; gap: number; radius: string; icon: number }> = {
-    sm: { padding: '7px 12px', fontSize: 13, gap: 6, radius: 'var(--radius-sm)', icon: 15 },
-    md: { padding: '10px 18px', fontSize: 14, gap: 8, radius: 'var(--radius-md)', icon: 17 },
-    lg: { padding: '13px 24px', fontSize: 15, gap: 9, radius: 'var(--radius-md)', icon: 19 },
+  const sizes: Record<ButtonSize, { padding: string; fontSize: number; gap: number; radius: string; icon: number; minHeight: number }> = {
+    sm: { padding: '7px 12px', fontSize: 13, gap: 6, radius: 'var(--radius-sm)', icon: 15, minHeight: 36 },
+    md: { padding: '10px 18px', fontSize: 14, gap: 8, radius: 'var(--radius-md)', icon: 17, minHeight: 44 },
+    lg: { padding: '13px 24px', fontSize: 15, gap: 9, radius: 'var(--radius-md)', icon: 19, minHeight: 48 },
   };
   const s = sizes[size];
 
@@ -78,6 +78,7 @@ export function Button({
         justifyContent: 'center',
         gap: s.gap,
         padding: s.padding,
+        minHeight: s.minHeight,
         fontSize: s.fontSize,
         fontWeight: 600,
         fontFamily: 'var(--font-sans)',

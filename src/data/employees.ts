@@ -7,7 +7,7 @@ import type { Employee } from '../types';
  * eligibility values are NOT stored here — they are computed by the payroll
  * services from these inputs.
  */
-export const EMPLOYEES: Employee[] = [
+const SEED_EMPLOYEES: Employee[] = [
   {
     id: 'GNG-BD-0142',
     name: 'Subir Maity',
@@ -276,3 +276,16 @@ export const EMPLOYEES: Employee[] = [
     ],
   },
 ];
+
+/**
+ * Namespace every child record's id by its employee id so that ids are globally
+ * unique (e.g. flattened ledgers across employees never collide on React keys).
+ */
+export const EMPLOYEES: Employee[] = SEED_EMPLOYEES.map((e) => ({
+  ...e,
+  advances: e.advances.map((a) => ({ ...a, id: `${e.id}-${a.id}` })),
+  payments: e.payments.map((p) => ({ ...p, id: `${e.id}-${p.id}` })),
+  leaves: e.leaves.map((l) => ({ ...l, id: `${e.id}-${l.id}` })),
+  documents: e.documents.map((d) => ({ ...d, id: `${e.id}-${d.id}` })),
+  tiffin: e.tiffin.map((t) => ({ ...t, id: `${e.id}-${t.id}` })),
+}));

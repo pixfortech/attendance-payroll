@@ -14,6 +14,7 @@ import { FormulaBuilderPage } from './pages/FormulaBuilderPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { LoginPage } from './pages/LoginPage';
+import { KioskPage } from './pages/KioskPage';
 import { PortalPage } from './pages/portal/PortalPage';
 
 export function App() {
@@ -36,6 +37,7 @@ export function App() {
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/kiosk" element={<KioskPage />} />
           <Route path="/portal" element={<PortalPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

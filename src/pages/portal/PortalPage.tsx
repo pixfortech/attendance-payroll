@@ -1,9 +1,10 @@
 import { useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Avatar, Badge, Button, Card, Icon, Input, Modal, Select, StatCard } from '../../components/ui';
+import { Avatar, Badge, Button, Card, Icon, Input, KV, Modal, Select, StatCard, type IconName } from '../../components/ui';
 import { SalarySlip } from '../../components/payroll/SalarySlip';
 import { CONFIRMATION_META } from '../../components/payroll/statusMeta';
 import { useAppStore } from '../../store/AppStore';
+import { useIsMobile } from '../../hooks/useMediaQuery';
 import { employeeBreakdown, employeeOutstandingAdvance, employeeTiffinTotal } from '../../lib/payroll';
 import { formatINR, formatINR0 } from '../../services';
 import { CURRENT_MONTH } from '../../data';
@@ -11,166 +12,271 @@ import type { Employee, LeaveType } from '../../types';
 import logo from '../../assets/ganguram-logo.png';
 import gauri from '../../assets/gauri-mascot.png';
 
+type Section = 'home' | 'attendance' | 'leave' | 'payments' | 'profile';
+const SECTIONS: { id: Section; label: string; icon: IconName }[] = [
+  { id: 'home', label: 'Home', icon: 'home' },
+  { id: 'attendance', label: 'Attendance', icon: 'calendar' },
+  { id: 'leave', label: 'Leave', icon: 'clock' },
+  { id: 'payments', label: 'Payments', icon: 'wallet' },
+  { id: 'profile', label: 'Profile', icon: 'user' },
+];
+
 const noticeTone: Record<string, CSSProperties> = {
   brand: { background: 'var(--indigo-50)', border: '1px solid var(--indigo-100)' },
   info: { background: 'var(--blue-50)', border: '1px solid var(--blue-100)' },
   warning: { background: 'var(--amber-50)', border: '1px solid var(--amber-100)' },
 };
+const mono = { fontFamily: 'var(--font-mono)' as const };
 
 export function PortalPage() {
   const navigate = useNavigate();
-  const { employees, notices, updatePaymentStatus } = useAppStore();
-  // The signed-in employee (sample): first login-enabled employee.
+  const { employees } = useAppStore();
+  const isMobile = useIsMobile();
   const emp = employees.find((e) => e.login === 'enabled') ?? employees[0];
+  const [section, setSection] = useState<Section>('home');
   const [slip, setSlip] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
 
-  const b = employeeBreakdown(emp);
-  const pending = emp.payments.filter((p) => p.status === 'pending');
-
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--surface-page)' }}>
-      {/* Portal topbar */}
-      <header style={{ height: 64, display: 'flex', alignItems: 'center', gap: 16, padding: '0 24px', background: 'var(--surface-card)', borderBottom: '1px solid var(--border-subtle)', position: 'sticky', top: 0, zIndex: 10 }}>
-        <img src={logo} alt="Ganguram" style={{ height: 38 }} />
-        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Employee portal</span>
+    <div style={{ minHeight: '100vh', background: 'var(--surface-page)', paddingBottom: isMobile ? 76 : 0 }}>
+      {/* Topbar */}
+      <header style={{ height: 60, display: 'flex', alignItems: 'center', gap: 12, padding: '0 16px', background: 'var(--surface-card)', borderBottom: '1px solid var(--border-subtle)', position: 'sticky', top: 0, zIndex: 10 }}>
+        <img src={logo} alt="Ganguram" style={{ height: 34 }} />
+        {!isMobile && <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Employee portal</span>}
         <div style={{ flex: 1 }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Avatar name={emp.name} size={34} status="present" />
+        <Avatar name={emp.name} size={32} status="present" />
+        {!isMobile && (
           <div style={{ lineHeight: 1.2 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-strong)' }}>{emp.name}</div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{emp.role} · {emp.branch}</div>
           </div>
-        </div>
-        <Button variant="ghost" size="sm" iconLeft={<Icon name="logout" size={15} />} onClick={() => navigate('/login')}>Sign out</Button>
+        )}
+        <Button variant="ghost" size="sm" iconLeft={<Icon name="logout" size={15} />} onClick={() => navigate('/login')}>{isMobile ? '' : 'Sign out'}</Button>
       </header>
 
-      <main className="gx-scroll" style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 24px 48px', display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {/* Hero — welcome + salary (a permitted Gauri moment) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 24, padding: '24px 28px', borderRadius: 'var(--radius-xl)', background: 'linear-gradient(135deg, var(--indigo-600) 0%, var(--indigo-800) 100%)', color: '#fff', flexWrap: 'wrap' }}>
-          <img src={gauri} alt="Gauri" style={{ height: 96, filter: 'drop-shadow(0 10px 20px rgba(0,0,0,0.3))' }} />
-          <div style={{ flex: 1, minWidth: 220 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)' }}>Namaste</div>
-            <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.02em', color: '#fff', marginTop: 2 }}>{emp.name.split(' ')[0]}</h1>
-            <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,0.8)', marginTop: 6 }}>Here is your {CURRENT_MONTH.label} summary.</p>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Net payable</div>
-            <div style={{ fontSize: 34, fontWeight: 800, fontFamily: 'var(--font-mono)', letterSpacing: '-0.02em' }}>{formatINR0(b.finalPayable)}</div>
-            <Button variant="accent" size="sm" iconLeft={<Icon name="fileText" size={15} />} onClick={() => setSlip(true)} style={{ marginTop: 8 }}>View salary slip</Button>
-          </div>
+      {/* Desktop section pills */}
+      {!isMobile && (
+        <div style={{ maxWidth: 1100, margin: '0 auto', padding: '16px 24px 0', display: 'flex', gap: 6 }}>
+          {SECTIONS.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => setSection(s.id)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 'var(--radius-pill)', border: '1px solid', borderColor: section === s.id ? 'var(--brand-primary)' : 'var(--border-subtle)', background: section === s.id ? 'var(--brand-primary)' : 'var(--surface-card)', color: section === s.id ? '#fff' : 'var(--text-body)', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}
+            >
+              <Icon name={s.icon} size={16} /> {s.label}
+            </button>
+          ))}
         </div>
+      )}
 
-        {/* Quick stats */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
-          <StatCard label="Worked days" value={emp.worked} suffix={`/ ${CURRENT_MONTH.workingDays}`} icon="calendar" tone="brand" />
-          <StatCard label="Free leave left" value={b.leaveUnused} suffix="/ 4" icon="circleCheck" tone="green" />
-          <StatCard label="Tiffin (CTC)" value={formatINR0(employeeTiffinTotal(emp)).replace('₹', '')} prefix="₹" icon="utensils" tone="blue" />
-          <StatCard label="Advance balance" value={formatINR0(employeeOutstandingAdvance(emp)).replace('₹', '')} prefix="₹" icon="banknote" tone="amber" />
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 18, alignItems: 'start' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-            {/* Pending confirmations */}
-            <Card title="Pending payment confirmations" subtitle="Confirm what you have received" action={<Badge variant="pending">{pending.length}</Badge>}>
-              {pending.length === 0 ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-muted)', fontSize: 13 }}>
-                  <Icon name="circleCheck" size={18} color="var(--green-500)" /> All payments confirmed. Nothing pending.
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {pending.map((p) => (
-                    <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'var(--surface-inset)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', flexWrap: 'wrap' }}>
-                      <span style={{ width: 38, height: 38, borderRadius: 'var(--radius-md)', background: 'var(--indigo-50)', color: 'var(--indigo-600)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Icon name="wallet" size={18} />
-                      </span>
-                      <div style={{ flex: 1, minWidth: 120 }}>
-                        <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text-strong)' }}>{p.type} · {p.period}</div>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{p.date} · {p.method} {p.ref && p.ref !== '—' ? `· ${p.ref}` : ''}</div>
-                      </div>
-                      <span style={{ fontSize: 15, fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--text-strong)' }}>{formatINR(p.amount)}</span>
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <Button variant="primary" size="sm" iconLeft={<Icon name="check" size={14} />} onClick={() => updatePaymentStatus(emp.id, p.id, 'confirmed')}>Confirm</Button>
-                        <Button variant="secondary" size="sm" onClick={() => updatePaymentStatus(emp.id, p.id, 'disputed')}>Raise issue</Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Card>
-
-            {/* Payment receipts */}
-            <Card title="Payment receipts" subtitle="Your salary, advance & tiffin history" padding="0">
-              <div className="gx-scroll" style={{ overflowX: 'auto' }}>
-                <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 520 }}>
-                  <thead>
-                    <tr style={{ background: 'var(--surface-inset)' }}>
-                      {['Type', 'Period', 'Amount', 'Status'].map((h, i) => (
-                        <th key={i} style={{ textAlign: i === 2 ? 'right' : 'left', padding: '11px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.04em', textTransform: 'uppercase', borderBottom: '1px solid var(--border-subtle)' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {emp.payments.map((p) => {
-                      const meta = CONFIRMATION_META[p.status];
-                      return (
-                        <tr key={p.id}>
-                          <td style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', fontSize: 13, fontWeight: 600, color: 'var(--text-strong)' }}>{p.type}</td>
-                          <td style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', fontSize: 13, color: 'var(--text-muted)' }}>{p.period}</td>
-                          <td style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', fontSize: 13, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-strong)' }}>{formatINR(p.amount)}</td>
-                          <td style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)' }}><Badge variant={meta.variant} size="sm" dot>{meta.label}</Badge></td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-            {/* Leave status */}
-            <Card title="Leave status" subtitle={`Free leave: ${b.leaveUnused} of 4 left`} action={<Button variant="tonal" size="sm" iconLeft={<Icon name="plus" size={14} />} onClick={() => setLeaveOpen(true)}>Request</Button>}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {emp.leaves.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No leave requests yet.</div>}
-                {emp.leaves.map((l) => (
-                  <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
-                    <Icon name="calendar" size={16} color="var(--blue-600)" />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong)' }}>{l.dateLabel} · {l.days}d</div>
-                      <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{l.type}</div>
-                    </div>
-                    {l.status === 'pending' ? (
-                      <Badge variant="pending" size="sm" dot>Pending</Badge>
-                    ) : l.status === 'rejected' ? (
-                      <Badge variant="rejected" size="sm" dot>Rejected</Badge>
-                    ) : (
-                      <Badge variant={l.paid ? 'eligible' : 'deductible'} size="sm" dot>{l.paid ? 'Paid' : 'Unpaid'}</Badge>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </Card>
-
-            {/* Company notices */}
-            <Card title="Company notices">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {notices.map((n) => (
-                  <div key={n.id} style={{ padding: '11px 13px', borderRadius: 'var(--radius-md)', ...noticeTone[n.tone] }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-strong)' }}>{n.title}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.45 }}>{n.body}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-subtle)', marginTop: 6 }}>{n.date}</div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          </div>
-        </div>
+      <main className="gx-scroll" style={{ maxWidth: 1100, margin: '0 auto', padding: isMobile ? '16px 14px 24px' : '20px 24px 40px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {section === 'home' && <HomeSection emp={emp} onSlip={() => setSlip(true)} onGoLeave={() => setSection('leave')} />}
+        {section === 'attendance' && <AttendanceSection emp={emp} />}
+        {section === 'leave' && <LeaveSection emp={emp} onRequest={() => setLeaveOpen(true)} />}
+        {section === 'payments' && <PaymentsSection emp={emp} onSlip={() => setSlip(true)} />}
+        {section === 'profile' && <ProfileSection emp={emp} onSignOut={() => navigate('/login')} />}
       </main>
+
+      {/* Mobile bottom nav */}
+      {isMobile && (
+        <nav style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: 64, background: 'var(--surface-card)', borderTop: '1px solid var(--border-subtle)', display: 'flex', zIndex: 40, boxShadow: '0 -2px 12px rgba(38,37,74,0.06)' }}>
+          {SECTIONS.map((s) => {
+            const on = section === s.id;
+            return (
+              <button
+                key={s.id}
+                onClick={() => setSection(s.id)}
+                style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, border: 'none', background: 'transparent', cursor: 'pointer', color: on ? 'var(--brand-primary)' : 'var(--text-muted)', fontFamily: 'var(--font-sans)', minHeight: 44 }}
+              >
+                <Icon name={s.icon} size={21} />
+                <span style={{ fontSize: 10.5, fontWeight: on ? 700 : 600 }}>{s.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      )}
 
       {slip && <SalarySlip employee={emp} onClose={() => setSlip(false)} />}
       {leaveOpen && <LeaveRequestModal emp={emp} onClose={() => setLeaveOpen(false)} />}
     </div>
+  );
+}
+
+function HomeSection({ emp, onSlip, onGoLeave }: { emp: Employee; onSlip: () => void; onGoLeave: () => void }) {
+  const { notices, updatePaymentStatus } = useAppStore();
+  const b = employeeBreakdown(emp);
+  const pending = emp.payments.filter((p) => p.status === 'pending');
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 18, padding: '20px 22px', borderRadius: 'var(--radius-xl)', background: 'linear-gradient(135deg, var(--indigo-600) 0%, var(--indigo-800) 100%)', color: '#fff', flexWrap: 'wrap' }}>
+        <img src={gauri} alt="Gauri" style={{ height: 84, filter: 'drop-shadow(0 10px 20px rgba(0,0,0,0.3))' }} />
+        <div style={{ flex: 1, minWidth: 180 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)' }}>Namaste</div>
+          <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em', color: '#fff', marginTop: 2 }}>{emp.name.split(' ')[0]}</h1>
+          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', marginTop: 6 }}>Your {CURRENT_MONTH.label} net payable</p>
+          <div style={{ fontSize: 30, fontWeight: 800, ...mono, marginTop: 2 }}>{formatINR0(b.finalPayable)}</div>
+          <Button variant="accent" size="sm" iconLeft={<Icon name="fileText" size={15} />} onClick={onSlip} style={{ marginTop: 10 }}>View salary slip</Button>
+        </div>
+      </div>
+
+      <div className="gx-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+        <StatCard label="Worked days" value={emp.worked} suffix={`/ ${CURRENT_MONTH.workingDays}`} icon="calendar" tone="brand" />
+        <StatCard label="Free leave left" value={b.leaveUnused} suffix="/ 4" icon="circleCheck" tone="green" />
+        <StatCard label="Tiffin (CTC)" value={formatINR0(employeeTiffinTotal(emp)).replace('₹', '')} prefix="₹" icon="utensils" tone="blue" />
+        <StatCard label="Advance" value={formatINR0(employeeOutstandingAdvance(emp)).replace('₹', '')} prefix="₹" icon="banknote" tone="amber" />
+      </div>
+
+      <Card title="Pending payment confirmations" action={<Badge variant="pending">{pending.length}</Badge>}>
+        {pending.length === 0 ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-muted)', fontSize: 13 }}>
+            <Icon name="circleCheck" size={18} color="var(--green-500)" /> All payments confirmed.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {pending.map((p) => (
+              <div key={p.id} style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 14px', background: 'var(--surface-inset)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ width: 38, height: 38, borderRadius: 'var(--radius-md)', background: 'var(--indigo-50)', color: 'var(--indigo-600)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="wallet" size={18} /></span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text-strong)' }}>{p.type} · {p.period}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{p.date} · {p.method}</div>
+                  </div>
+                  <span style={{ fontSize: 15, fontWeight: 800, ...mono }}>{formatINR(p.amount)}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button variant="primary" size="sm" full iconLeft={<Icon name="check" size={14} />} onClick={() => updatePaymentStatus(emp.id, p.id, 'confirmed')}>Confirm</Button>
+                  <Button variant="secondary" size="sm" full onClick={() => updatePaymentStatus(emp.id, p.id, 'disputed')}>Raise issue</Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card title="Company notices">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {notices.map((n) => (
+            <div key={n.id} style={{ padding: '11px 13px', borderRadius: 'var(--radius-md)', ...noticeTone[n.tone] }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-strong)' }}>{n.title}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.45 }}>{n.body}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-subtle)', marginTop: 6 }}>{n.date}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Button variant="tonal" full iconLeft={<Icon name="clock" size={16} />} onClick={onGoLeave}>Request leave</Button>
+    </>
+  );
+}
+
+function AttendanceSection({ emp }: { emp: Employee }) {
+  const b = employeeBreakdown(emp);
+  return (
+    <>
+      <div className="gx-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+        <StatCard label="Worked" value={emp.worked} suffix={`/ ${CURRENT_MONTH.workingDays}`} icon="calendar" tone="brand" />
+        <StatCard label="Present" value={emp.daysPresent} icon="circleCheck" tone="green" />
+        <StatCard label="Absent" value={emp.daysAbsent} icon="x" tone="coral" />
+        <StatCard label="Leave used" value={emp.leaveUsed} icon="clock" tone="blue" />
+      </div>
+      <Card title="This month" subtitle={`${CURRENT_MONTH.label} · ${emp.branch}`}>
+        <KV label="Daily salary basis" value={emp.basis === 'fixed30' ? 'Fixed 30-day' : 'Actual calendar-day'} icon="calculator" />
+        <KV label="Daily salary" value={formatINR(b.daily)} mono icon="rupee" />
+        <KV label="Free paid leave left" value={`${b.leaveUnused} / 4`} icon="circleCheck" valueColor={b.leaveUnused > 0 ? 'var(--green-700)' : 'var(--coral-600)'} />
+      </Card>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, color: 'var(--text-muted)', background: 'var(--surface-inset)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '12px 14px' }}>
+        <Icon name="qr" size={16} color="var(--indigo-500)" style={{ marginTop: 1 }} />
+        Check in each day by scanning your branch QR. If GPS or selfie is required, follow the on-screen prompt.
+      </div>
+    </>
+  );
+}
+
+function LeaveSection({ emp, onRequest }: { emp: Employee; onRequest: () => void }) {
+  const b = employeeBreakdown(emp);
+  return (
+    <>
+      <Card title="Free leave balance" subtitle="4 paid leaves per month for eligible staff">
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ fontSize: 36, fontWeight: 800, ...mono, color: b.leaveUnused > 0 ? 'var(--green-700)' : 'var(--coral-600)' }}>{b.leaveUnused}</span>
+          <span style={{ fontSize: 14, color: 'var(--text-muted)', fontWeight: 600 }}>of 4 left</span>
+        </div>
+        <Button variant="primary" full iconLeft={<Icon name="plus" size={16} />} onClick={onRequest} style={{ marginTop: 14 }}>Request leave</Button>
+      </Card>
+      <Card title="Leave requests">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {emp.leaves.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No leave requests yet.</div>}
+          {emp.leaves.map((l) => (
+            <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 12px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+              <Icon name="calendar" size={16} color="var(--blue-600)" />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong)' }}>{l.dateLabel} · {l.days}d</div>
+                <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{l.type} · {l.reason}</div>
+              </div>
+              {l.status === 'pending' ? (
+                <Badge variant="pending" size="sm" dot>Pending</Badge>
+              ) : l.status === 'rejected' ? (
+                <Badge variant="rejected" size="sm" dot>Rejected</Badge>
+              ) : (
+                <Badge variant={l.paid ? 'eligible' : 'deductible'} size="sm" dot>{l.paid ? 'Paid' : 'Unpaid'}</Badge>
+              )}
+            </div>
+          ))}
+        </div>
+      </Card>
+    </>
+  );
+}
+
+function PaymentsSection({ emp, onSlip }: { emp: Employee; onSlip: () => void }) {
+  return (
+    <>
+      <Button variant="secondary" full iconLeft={<Icon name="fileText" size={16} />} onClick={onSlip}>View current salary slip</Button>
+      <Card title="Payment receipts" subtitle="Salary, advance, tiffin & bonus">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {emp.payments.map((p) => {
+            const m = CONFIRMATION_META[p.status];
+            return (
+              <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 13px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text-strong)' }}>{p.type} · {p.period}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{p.date} · {p.method}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, ...mono, color: 'var(--text-strong)' }}>{formatINR(p.amount)}</div>
+                  <Badge variant={m.variant} size="sm" dot>{m.label}</Badge>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+    </>
+  );
+}
+
+function ProfileSection({ emp, onSignOut }: { emp: Employee; onSignOut: () => void }) {
+  return (
+    <>
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <Avatar name={emp.name} size={56} status="present" />
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-strong)' }}>{emp.name}</div>
+            <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>{emp.role} · {emp.branch}</div>
+          </div>
+        </div>
+      </Card>
+      <Card title="My details">
+        <KV label="Employee ID" value={emp.id} mono icon="user" />
+        <KV label="Joining date" value={emp.joined} icon="calendar" />
+        <KV label="Phone" value={emp.phone} icon="phone" />
+        <KV label="Email" value={emp.email} icon="mail" />
+        <KV label="Monthly salary" value={formatINR0(emp.salary)} mono icon="wallet" />
+      </Card>
+      <Button variant="secondary" full iconLeft={<Icon name="logout" size={16} />} onClick={onSignOut}>Sign out</Button>
+    </>
   );
 }
 
@@ -182,13 +288,7 @@ function LeaveRequestModal({ emp, onClose }: { emp: Employee; onClose: () => voi
   const [reason, setReason] = useState('');
 
   const submit = () => {
-    addLeaveRequest(emp.id, {
-      dateLabel: dateLabel || '—',
-      days: Number(days) || 1,
-      type,
-      reason: reason || '—',
-      status: 'pending',
-    });
+    addLeaveRequest(emp.id, { dateLabel: dateLabel || '—', days: Number(days) || 1, type, reason: reason || '—', status: 'pending' });
     onClose();
   };
 

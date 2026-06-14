@@ -142,6 +142,57 @@ export interface Branch {
   payable: number;
   status: 'active' | 'inactive';
   defaultBasis: SalaryBasis;
+  geofence: BranchGeofence;
+  qr: BranchQr;
+}
+
+/* ---------- Branch geofence & QR attendance ---------- */
+export interface BranchGeofence {
+  latitude: number;
+  longitude: number;
+  /** Allowed check-in radius around the branch, in metres. */
+  radiusMetres: number;
+  wifiSsid?: string;
+  gpsRequired: boolean;
+  selfieRequired: boolean;
+  managerApprovalRequired: boolean;
+}
+
+export type QrStatus = 'active' | 'expired' | 'rotated';
+export type QrRotation = 'daily' | 'weekly' | 'monthly';
+
+export interface BranchQr {
+  /** Opaque, branch-specific token embedded in the QR payload. */
+  token: string;
+  status: QrStatus;
+  rotation: QrRotation;
+  generatedAt: string;
+}
+
+/* ---------- Attendance proof ---------- */
+export type ProofMethod = 'qr' | 'gps' | 'selfie' | 'kiosk' | 'manual';
+export type ProofStrength = 'strong' | 'medium' | 'needs_approval';
+
+export interface ProofFactors {
+  qrMatched: boolean;
+  gpsInsideRadius: boolean;
+  wifiMatched: boolean;
+  selfieCaptured: boolean;
+  managerApproved: boolean;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  branch: string;
+  date: string;
+  time: string;
+  method: ProofMethod;
+  factors: ProofFactors;
+  strength: ProofStrength;
+  /** false → held in the Pending Manager Approval queue. */
+  approved: boolean;
 }
 
 /* ---------- Formula builder ---------- */

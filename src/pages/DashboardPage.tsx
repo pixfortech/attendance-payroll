@@ -1,8 +1,9 @@
 import { useNavigate } from 'react-router-dom';
-import { Avatar, Badge, Button, Card, Icon, ProgressBar, StatCard } from '../components/ui';
+import { Avatar, Badge, Button, Card, Icon, ProgressBar, ResponsiveTable, StatCard, type Column } from '../components/ui';
 import { useAppStore } from '../store/AppStore';
 import { employeeBreakdown } from '../lib/payroll';
 import { formatINR0 } from '../services';
+import type { Branch } from '../types';
 
 const TREND = [
   { m: 'Oct', v: 13.2 },
@@ -56,9 +57,32 @@ export function DashboardPage() {
   const { employees, branches } = useAppStore();
   const approvals = employees.filter((e) => e.payrollStatus === 'pending' || e.payrollStatus === 'hold');
 
+  const branchColumns: Column<Branch>[] = [
+    {
+      key: 'name',
+      header: 'Branch',
+      render: (b) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ width: 30, height: 30, borderRadius: 'var(--radius-sm)', background: 'var(--indigo-50)', color: 'var(--indigo-600)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="mapPin" size={15} /></span>
+          <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text-strong)' }}>{b.name}</span>
+        </div>
+      ),
+    },
+    { key: 'staff', header: 'Staff', render: (b) => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{b.presentToday}/{b.staffCount}</span> },
+    {
+      key: 'att',
+      header: 'Attendance',
+      render: (b) => {
+        const pct = Math.round((b.presentToday / b.staffCount) * 100);
+        return <div style={{ minWidth: 90 }}><ProgressBar value={pct} max={100} tone={pct >= 92 ? 'green' : pct >= 89 ? 'brand' : 'amber'} height={6} /></div>;
+      },
+    },
+    { key: 'pay', header: 'Payable', align: 'right', render: (b) => <span style={{ fontWeight: 700, color: 'var(--text-strong)', fontFamily: 'var(--font-mono)' }}>{formatINR0(b.payable)}</span> },
+  ];
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+      <div className="gx-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
         <StatCard label="Net payable — March" value="14,82,500" prefix="₹" icon="wallet" tone="brand" delta="+6.4%" footnote="vs February" />
         <StatCard label="Present today" value="148" suffix="/ 162" icon="users" tone="green" footnote="91% attendance" />
         <StatCard label="Pending approvals" value="12" icon="clock" tone="amber" footnote="across 5 branches" />
@@ -99,47 +123,7 @@ export function DashboardPage() {
             </Button>
           }
         >
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1.6fr 1fr 1.4fr 1fr',
-                gap: 12,
-                padding: '0 4px 10px',
-                fontSize: 11,
-                fontWeight: 700,
-                color: 'var(--text-subtle)',
-                letterSpacing: '0.04em',
-                textTransform: 'uppercase',
-                borderBottom: '1px solid var(--border-subtle)',
-              }}
-            >
-              <span>Branch</span>
-              <span>Staff</span>
-              <span>Attendance</span>
-              <span style={{ textAlign: 'right' }}>Payable</span>
-            </div>
-            {branches.map((b) => {
-              const pct = Math.round((b.presentToday / b.staffCount) * 100);
-              return (
-                <div key={b.id} style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr 1.4fr 1fr', gap: 12, alignItems: 'center', padding: '12px 4px', borderBottom: '1px solid var(--border-subtle)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ width: 30, height: 30, borderRadius: 'var(--radius-sm)', background: 'var(--indigo-50)', color: 'var(--indigo-600)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Icon name="mapPin" size={15} />
-                    </span>
-                    <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text-strong)' }}>{b.name}</span>
-                  </div>
-                  <span style={{ fontSize: 13, color: 'var(--text-body)', fontVariantNumeric: 'tabular-nums' }}>
-                    {b.presentToday}/{b.staffCount}
-                  </span>
-                  <div style={{ paddingRight: 14 }}>
-                    <ProgressBar value={pct} max={100} tone={pct >= 92 ? 'green' : pct >= 89 ? 'brand' : 'amber'} height={6} />
-                  </div>
-                  <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text-strong)', textAlign: 'right', fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }}>{formatINR0(b.payable)}</span>
-                </div>
-              );
-            })}
-          </div>
+          <ResponsiveTable columns={branchColumns} rows={branches} rowKey={(b) => b.id} onRowClick={() => navigate('/branches')} minWidth={520} />
         </Card>
 
         <Card title="Awaiting approval" subtitle="Top of the queue" action={<Badge variant="pending">{approvals.length}</Badge>}>

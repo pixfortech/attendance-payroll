@@ -1,17 +1,23 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 import type {
   Advance,
+  AttendanceRecord,
   Branch,
+  BranchGeofence,
   ConfirmationStatus,
   Employee,
   FormulaBlock,
   LeaveRequest,
   Notice,
   Payment,
+  ProofFactors,
+  ProofMethod,
+  QrRotation,
 } from '../types';
-import { BRANCHES, EMPLOYEES, FORMULA_BLOCKS, NOTICES } from '../data';
+import { BRANCHES, CHECKINS, EMPLOYEES, FORMULA_BLOCKS, NOTICES } from '../data';
 import { evaluateEligibility } from '../services/eligibility';
 import { allocatePaidLeave } from '../services/leave';
+import { evaluateProof, isAutoApproved } from '../services/attendance';
 
 /**
  * In-memory application store. All mutations flow through these actions so the
@@ -24,8 +30,15 @@ interface AppContextValue {
   branches: Branch[];
   formulaBlocks: FormulaBlock[];
   notices: Notice[];
+  checkins: AttendanceRecord[];
 
   getEmployee: (id: string) => Employee | undefined;
+  getBranch: (id: string) => Branch | undefined;
+  addCheckin: (input: { employeeId: string; employeeName: string; branch: string; method: ProofMethod; factors: ProofFactors; time: string }) => void;
+  approveCheckin: (id: string) => void;
+  rotateBranchQr: (branchId: string) => void;
+  updateBranchQrRotation: (branchId: string, rotation: QrRotation) => void;
+  updateBranchGeofence: (branchId: string, patch: Partial<BranchGeofence>) => void;
   addAdvance: (employeeId: string, advance: Omit<Advance, 'id'>) => void;
   addPayment: (employeeId: string, payment: Omit<Payment, 'id'>) => void;
   updatePaymentStatus: (employeeId: string, paymentId: string, status: ConfirmationStatus) => void;
@@ -63,12 +76,18 @@ function recomputeLeavePaidFlags(employee: Employee): Employee {
 
 export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [employees, setEmployees] = useState<Employee[]>(EMPLOYEES);
-  const [branches] = useState<Branch[]>(BRANCHES);
+  const [branches, setBranches] = useState<Branch[]>(BRANCHES);
   const [formulaBlocks, setFormulaBlocks] = useState<FormulaBlock[]>(FORMULA_BLOCKS);
   const [notices] = useState<Notice[]>(NOTICES);
+  const [checkins, setCheckins] = useState<AttendanceRecord[]>(CHECKINS);
 
   const updateEmployee = (employeeId: string, fn: (e: Employee) => Employee) =>
     setEmployees((prev) => prev.map((e) => (e.id === employeeId ? fn(e) : e)));
+
+  const updateBranch = (branchId: string, fn: (b: Branch) => Branch) =>
+    setBranches((prev) => prev.map((b) => (b.id === branchId ? fn(b) : b)));
+
+  const randToken = (code: string) => `GNGQR-${code}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 
   const value = useMemo<AppContextValue>(
     () => ({
@@ -76,7 +95,46 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       branches,
       formulaBlocks,
       notices,
+      checkins,
       getEmployee: (id) => employees.find((e) => e.id === id),
+      getBranch: (id) => branches.find((b) => b.id === id),
+
+      rotateBranchQr: (branchId) =>
+        updateBranch(branchId, (b) => ({ ...b, qr: { ...b.qr, token: randToken(b.code), status: 'active', generatedAt: '14 Mar 2026' } })),
+
+      updateBranchQrRotation: (branchId, rotation) =>
+        updateBranch(branchId, (b) => ({ ...b, qr: { ...b.qr, rotation } })),
+
+      updateBranchGeofence: (branchId, patch) =>
+        updateBranch(branchId, (b) => ({ ...b, geofence: { ...b.geofence, ...patch } })),
+
+      addCheckin: (input) =>
+        setCheckins((prev) => {
+          const branch = branches.find((b) => b.name === input.branch);
+          const strength = evaluateProof(input.factors);
+          const record: AttendanceRecord = {
+            id: uid('chk'),
+            employeeId: input.employeeId,
+            employeeName: input.employeeName,
+            branch: input.branch,
+            date: '14 Mar 2026',
+            time: input.time,
+            method: input.method,
+            factors: input.factors,
+            strength,
+            approved: branch ? isAutoApproved(branch, input.factors) : false,
+          };
+          return [record, ...prev];
+        }),
+
+      approveCheckin: (id) =>
+        setCheckins((prev) =>
+          prev.map((c) => {
+            if (c.id !== id) return c;
+            const factors = { ...c.factors, managerApproved: true };
+            return { ...c, factors, strength: evaluateProof(factors), approved: true };
+          }),
+        ),
 
       addAdvance: (employeeId, advance) =>
         updateEmployee(employeeId, (e) => ({ ...e, advances: [{ ...advance, id: uid('adv') }, ...e.advances] })),
@@ -117,7 +175,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       toggleFormulaBlock: (blockId) =>
         setFormulaBlocks((prev) => prev.map((b) => (b.id === blockId ? { ...b, active: !b.active } : b))),
     }),
-    [employees, branches, formulaBlocks, notices],
+    [employees, branches, formulaBlocks, notices, checkins],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

@@ -13,6 +13,7 @@ export { Avatar, type AvatarStatus } from './Avatar';
 export { Chip, type ChipKind } from './Chip';
 export { ProgressBar, type ProgressTone } from './ProgressBar';
 export { Tabs, type TabItem } from './Tabs';
+export { ResponsiveTable, type Column } from './ResponsiveTable';
 export { Modal } from './Modal';
 export { UploadZone } from './UploadZone';
 export { KV, SectionLabel } from './KV';
