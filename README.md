@@ -1,0 +1,309 @@
+<div align="center">
+
+# Ganguram Salary &amp; Attendance Tracker
+
+**A premium internal payroll, attendance and staff-management system for Ganguram Sweets** — a Kolkata sweets house, *since 1885*.
+
+Salary tracking is the core. Attendance is intelligent and future-ready. Everything is built to feel like a modern finance/admin dashboard — not a basic attendance app or an Excel sheet.
+
+`Brand indigo #49488D` · `White #FFFFFF` · `Accent coral #EA5454`
+
+</div>
+
+---
+
+## Table of contents
+
+1. [Product purpose](#product-purpose)
+2. [Modules](#modules)
+3. [Salary logic](#salary-logic)
+4. [Attendance logic](#attendance-logic)
+5. [Tiffin / food allowance logic](#tiffin--food-allowance-logic)
+6. [Custom payroll formula builder](#custom-payroll-formula-builder)
+7. [Advance money tracker](#advance-money-tracker)
+8. [Payment tracking &amp; received confirmation](#payment-tracking--received-confirmation)
+9. [Employee login portal](#employee-login-portal)
+10. [Reports](#reports)
+11. [Tech stack &amp; architecture](#tech-stack--architecture)
+12. [Repository &amp; branch structure](#repository--branch-structure)
+13. [Setup instructions](#setup-instructions)
+14. [Design system](#design-system)
+
+---
+
+## Product purpose
+
+Ganguram runs payroll monthly across multiple branches. This product gives the owner/manager a single, calm, professional control panel to:
+
+- Maintain a complete **Employee Master** (the backbone of the whole system).
+- Capture **attendance** per branch, per day — with a roadmap for QR, GPS+selfie, biometric and offline-sync capture.
+- Calculate **salary** with configurable policy (fixed 30-day vs actual calendar-day), intelligent **paid-leave** rules, and a safe **custom-formula** engine for bonuses, penalties, overtime and more.
+- Track **tiffin / food allowance** as a company-paid CTC on top of salary — never a deduction.
+- Keep an **advance ledger** per employee and a permanent, receipt-backed **payment history** with employee-side **received confirmation**.
+- Give every employee a **self-service login portal** to view their own attendance, salary, advances, tiffin, receipts, leave and slips, and to confirm payments / request leave.
+- Generate and export the full suite of payroll **reports**.
+
+The voice is plain, calm and operational. Numbers use the **₹ symbol with Indian digit grouping** (₹14,82,500), rendered in a tabular monospace so columns align. Statuses are short and literal — *Paid · Pending · Confirmed · Approved · Rejected · Eligible · Not eligible · Deductible · Locked*.
+
+---
+
+## Modules
+
+| # | Module | What it does |
+|---|--------|--------------|
+| 1 | **Dashboard** | KPIs (net payable, present today, pending approvals, tiffin CTC), payroll trend, payroll-run progress, branch summary, approvals queue. |
+| 2 | **Employee Master** | The backbone. Full profile, branch, role, joining date, salary, calculation basis, paid-leave &amp; 3-month eligibility, active/resigned status, tiffin setup, advance ledger, payment history, documents and login access — in a 7-tab employee detail. |
+| 3 | **Branch Management** | Locations, managers, staff counts and per-branch policy foundations. |
+| 4 | **Attendance** | Monthly mark grid (Present / Absent / Half / Leave / Off) + intelligent capture-methods roadmap and live punches. |
+| 5 | **Salary** | Smart payroll table with gross, worked days, leave used/free, deduction, tiffin CTC, net payable and approval status. |
+| 6 | **Salary Slip** | Printable, brand-headed salary slip with earnings &amp; deductions breakdown and net payable. |
+| 7 | **Formula Builder** | Build custom payroll blocks from clickable variable &amp; operator chips, with a safe backend evaluator and live preview. |
+| 8 | **Reports** | The full report catalogue with Excel / PDF export foundations. |
+| 9 | **Tiffin / Food Allowance** | Company-paid CTC with custom labels &amp; amounts, half-day rules, separate tracking and reporting. |
+| 10 | **Advance Money Tracker** | Per-employee advance ledger with amount, date, method, notes, reference, receipt upload, adjustment status and remaining balance. |
+| 11 | **Payment History / Confirmation** | Permanent, receipt-backed payment ledger with *Pending confirmation · Confirmed by employee · Disputed* states. |
+| 12 | **Employee Login Portal** | Self-service foundation: attendance, salary/advance/tiffin history, receipts, leave status, slips, pending confirmations and notices. |
+
+---
+
+## Salary logic
+
+Every employee has a **monthly salary**. The **calculation basis is configurable**:
+
+1. **Fixed 30-day policy** — daily salary = `monthly_salary / 30`.
+2. **Actual calendar-day policy** — daily salary = `monthly_salary / days_in_month`.
+
+> **Joining month:** a new employee's first month **always** uses actual calendar-day logic, regardless of the configured basis.
+
+### Paid-leave rules
+
+- **First 3 months:** no free leave. **Every** absent/leave day is deducted.
+- **After eligibility:** **4 free / paid leave days per month**. These are **strictly monthly and never carried forward**.
+- **All** off / leave / absence draws from the **same 4-day bucket**.
+- If total leave days exceed 4, **only the days above 4 are deducted**.
+
+**Eligibility for the 4 free leaves — all three must pass:**
+
+1. Tenure **≥ 3 months** in the company.
+2. **≥ 15 worked days** in the running month (**exactly 15 counts** as eligible).
+3. **Not resigned mid-month** (status is active).
+
+If the employee is **not eligible**, every leave/absent day is deductible.
+
+### Worked example
+
+> ₹10,000 salary · fixed 30-day policy · daily salary **₹333.33** · 7 leave days
+> → eligible, so `7 − 4 = 3` deductible days
+> → deduction `3 × ₹333.33 =` **−₹999.99**
+
+This logic lives in reusable service functions (see [architecture](#tech-stack--architecture)), not hardcoded in UI components.
+
+---
+
+## Attendance logic
+
+- Attendance is captured per branch, per day, with five marks: **Present (P) · Absent (A) · Half-day (H) · Paid leave (L) · Week-off (O)**.
+- **Worked days** count present days plus 0.5 per half-day.
+- The monthly grid feeds directly into salary calculation (worked days, leave used) and tiffin (tiffin days).
+- **Future-ready capture roadmap:** QR check-in (Live), GPS + selfie (Beta), biometric (Planned), offline sync (Planned), and manager approval (Live). The data model is designed so these can be layered in later.
+
+### Leave request flow
+
+Employees request leave from their portal; admin/manager approves or rejects. Paid vs unpaid is **auto-calculated**:
+
+- The first **4 eligible** leave days are **paid / free**.
+- Leave **above 4** becomes **unpaid / deductible**.
+- If the employee is **not eligible**, **all** leave days are deductible.
+
+---
+
+## Tiffin / food allowance logic
+
+- Tiffin is **never a deduction**. It is a **separate company-paid CTC** amount paid **on top of** salary.
+- It is taken **daily** by employees at their respective branches.
+- Admin defines **custom labels and amounts**, e.g. *Breakfast ₹60* and *Lunch / Dinner ₹100*. Amounts are fully variable and customisable.
+- Tiffin is **separately trackable and reportable**.
+- **No tiffin** is paid on **paid-leave days**.
+- **Half-day tiffin eligibility** is configurable per employee.
+
+---
+
+## Custom payroll formula builder
+
+Admin can create custom salary blocks: **Bonus · Extra Payment · Incentive · Penalty · Adjustment · Advance Deduction · Overtime · Festival Bonus · Tiffin Allowance · Damage Deduction · Manual Correction**.
+
+Each block carries:
+
+- **Custom label**
+- **Type** — earning, deduction, allowance (CTC) or info-only
+- **Formula**
+- **Display text** (how it appears on the slip)
+- **Active / inactive** status
+- **Month applicability**
+- **Employee scope** — defaults to **all employees**, with options for *selected employees*, *selected branches* or *selected roles/designations*.
+
+### Safe formula variables
+
+The builder exposes only these approved backend variables:
+
+```
+days_present        days_absent           days_half
+paid_leave_allowed  paid_leave_used       paid_leave_unused
+days_absent_deductible
+monthly_salary      daily_salary          tiffin_total
+overtime_hours      advance_amount        bonus_amount
+salary_payable      total_earnings        total_deductions
+final_payable
+```
+
+### Builder UI &amp; safety
+
+- Variables are shown as **clickable chips**; operators `+ − × ÷ % ( )` are **clickable buttons**.
+- Clicking a chip or operator **inserts it** into the formula editor.
+- **No unsafe code execution.** Only **approved variables, numbers and operators** are accepted.
+- Formulas are parsed and **evaluated safely in the service layer** (a tokeniser + shunting-yard evaluator), never with `eval` or `Function` on arbitrary input.
+
+---
+
+## Advance money tracker
+
+Each employee has an **advance ledger**. Admin can record advances with:
+
+- **Amount**, **date**, **payment method**, **notes**
+- Optional **receipt / reference number**
+- Optional **image / PDF upload**
+- **Adjustment status** against salary
+- **Remaining advance balance** (outstanding, recoverable against upcoming salary)
+
+---
+
+## Payment tracking &amp; received confirmation
+
+When **salary, advance, bonus, tiffin/food allowance or any other payment** is made, admin marks it as paid with:
+
+- **Payment method:** Cash · UPI · Bank Transfer · Cheque · Other
+- **Payment date**
+- **Reference / transaction number**
+- **Notes**
+- Optional **image / PDF receipt upload**
+
+The employee receives a **payment notification** and can **accept / confirm receipt**. Admin sees each payment as:
+
+- **Pending confirmation**
+- **Confirmed by employee**
+- **Disputed / issue raised**
+
+Every payment becomes part of a **permanent, employee-wise payment ledger** with receipts and confirmation status.
+
+---
+
+## Employee login portal
+
+The foundation for employee self-service access. Once enabled per employee, they can view:
+
+- Attendance · Salary history · Advance history · Tiffin / food allowance history
+- Payment receipts · Leave status · Salary slips
+- Pending payment confirmations · Company notices
+
+Employees can **confirm payments** and **request leave** from their own login.
+
+---
+
+## Reports
+
+- Monthly salary sheet
+- Branch-wise salary report
+- Employee-wise salary history
+- Tiffin / food allowance report
+- Paid leave report
+- Unused leave payable report
+- Advance / loan / deduction report
+- Final payroll summary
+- Cash / bank / UPI payment report
+- Excel / PDF export foundation
+- Printable salary slip
+
+---
+
+## Tech stack &amp; architecture
+
+- **React + TypeScript + Vite** for a fast, modern SPA.
+- **Tailwind CSS**, themed against the Ganguram design tokens (CSS custom properties are the single source of truth, consumed by both Tailwind utilities and component styles).
+- **React Router** for sidebar-driven navigation.
+- The **Ganguram Payroll Design System** is the visual source of truth — ported tokens (colours, typography, spacing, elevation), reusable primitives (Button, Card, Badge, Avatar, Chip, ProgressBar, Tabs, Icon, Input, Select, Switch, Checkbox, StatCard, IconButton) and full screens.
+
+### Project layout (on the `initial-setup` branch)
+
+```
+src/
+  components/ui/      Reusable design-system primitives (typed React)
+  components/layout/  App shell — sidebar, topbar
+  pages/              One file per module/screen
+  pages/portal/       Employee login portal foundation
+  services/           Payroll logic — NOT hardcoded in UI
+    salary.ts           Daily salary, leave deduction, net payable, basis logic
+    eligibility.ts      3-month + 15-worked-day + not-resigned eligibility
+    leave.ts            Paid vs unpaid leave split
+    tiffin.ts           Tiffin CTC totals
+    formula.ts          Safe tokeniser + shunting-yard formula evaluator
+    variables.ts        Approved payroll variables
+    format.ts           ₹ Indian-grouping currency + number formatting
+  data/               Sample seed data (branches, employees, formula blocks)
+  types/              Shared TypeScript domain types
+  styles/             Ported design tokens + global CSS
+  assets/             Logos and the Gauri mascot
+```
+
+> **Payroll logic is intentionally separated** into `src/services/` so it can be unit-tested and later moved behind a backend. The structure is kept **future-ready for Firebase / Supabase / a custom backend** — data access is centralised in `src/data/` so it can be swapped for live queries. **No real secrets, API keys or credentials** are included.
+
+### Mascot — Gauri
+
+Gauri (the folded-hands cow mascot) is kept **restrained and premium**: welcome moments, onboarding completion, salary-paid confirmation and friendly empty states only. She does **not** appear inside serious payroll, deduction, attendance or approval screens.
+
+---
+
+## Repository &amp; branch structure
+
+- **`main`** — this README and project documentation. Feature work does **not** continue on `main`.
+- **`initial-setup`** — the full implemented application (design system, screens, payroll services and seed data).
+
+---
+
+## Setup instructions
+
+> The runnable application lives on the **`initial-setup`** branch.
+
+```bash
+# 1. Clone and switch to the app branch
+git clone https://github.com/pixfortech/attendance-payroll.git
+cd attendance-payroll
+git checkout initial-setup
+
+# 2. Install dependencies
+npm install
+
+# 3. Start the dev server
+npm run dev
+# open the printed local URL (default http://localhost:5173)
+
+# 4. Production build / preview
+npm run build
+npm run preview
+```
+
+The app ships with **sample seed data** for Ganguram branches and employees, so it is **immediately demoable** — open the dashboard and click through the sidebar.
+
+---
+
+## Design system
+
+The interface is built from the **Ganguram Payroll Design System**:
+
+- **Identity** — Indigo `#49488D` (primary), Coral `#EA5454` (accent for the single most important action / alerts), white/near-white dashboard base, and cool-slate neutrals with a faint indigo cast.
+- **Status hues** — green = paid/present, amber = pending/half-day, blue = approved/paid-leave, coral = rejected/absent.
+- **Type** — **Plus Jakarta Sans** for UI, **IBM Plex Mono** with tabular numerals for figures, money, IDs and slip numbers. *(We do not have Ganguram's official font files yet; the font system is isolated so it can be swapped later.)*
+- **Surfaces** — soft radii, 1px hairlines, indigo-tinted layered shadows, calm flat backgrounds and quick, functional motion.
+
+> Fonts load from the Google Fonts CDN and can be swapped for self-hosted `@font-face` rules later. Icons are a self-contained Lucide-style stroke set.
+</content>
+</invoke>
