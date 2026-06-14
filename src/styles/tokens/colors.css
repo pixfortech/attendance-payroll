@@ -1,0 +1,127 @@
+/* ============================================================
+   GANGURAM PAYROLL — COLOR TOKENS
+   Brand: Primary indigo #49488D · Accent coral #EA5454 · White
+   ============================================================ */
+:root {
+  /* ---- Brand: Indigo (primary identity) ---- */
+  --indigo-50:  #f1f1f8;
+  --indigo-100: #e4e3f1;
+  --indigo-200: #c8c7e3;
+  --indigo-300: #a5a4cf;
+  --indigo-400: #7e7cb5;
+  --indigo-500: #5d5ca0;
+  --indigo-600: #49488d;  /* BRAND PRIMARY */
+  --indigo-700: #3d3c76;
+  --indigo-800: #312f5e;
+  --indigo-900: #26254a;
+  --indigo-950: #16162c;
+
+  /* ---- Brand: Coral (accent · actions · alerts) ---- */
+  --coral-50:  #fef1f1;
+  --coral-100: #fde3e3;
+  --coral-200: #fbc9c9;
+  --coral-300: #f7a3a3;
+  --coral-400: #f17676;
+  --coral-500: #ea5454;   /* BRAND ACCENT */
+  --coral-600: #d63b3b;
+  --coral-700: #b42c2c;
+  --coral-800: #952929;
+  --coral-900: #7c2727;
+
+  /* ---- Neutral: cool slate with a faint indigo cast ---- */
+  --neutral-0:   #ffffff;
+  --neutral-50:  #f8f8fb;
+  --neutral-100: #f1f1f6;
+  --neutral-200: #e6e6ee;
+  --neutral-300: #d4d4e0;
+  --neutral-400: #a9a9bd;
+  --neutral-500: #7b7b91;
+  --neutral-600: #585869;
+  --neutral-700: #42424f;
+  --neutral-800: #2c2c36;
+  --neutral-900: #1a1a22;
+
+  /* ---- Semantic hues (status & feedback) ---- */
+  --green-50:  #e9f7f0;
+  --green-100: #cdeede;
+  --green-500: #16a06a;   /* success · paid · present */
+  --green-600: #128a5b;
+  --green-700: #0e6e49;
+
+  --amber-50:  #fdf3e2;
+  --amber-100: #f9e3bd;
+  --amber-500: #e39a12;   /* warning · pending · half-day */
+  --amber-600: #c5820a;
+  --amber-700: #9a6608;
+
+  --blue-50:  #eaf0fb;
+  --blue-100: #d2e0f6;
+  --blue-500: #4e63c4;    /* info · paid leave · approved */
+  --blue-600: #3d50ab;
+  --blue-700: #324289;
+
+  /* ============================================================
+     SEMANTIC ALIASES — reach for these in components
+     ============================================================ */
+
+  /* Brand */
+  --brand-primary:        var(--indigo-600);
+  --brand-primary-hover:  var(--indigo-700);
+  --brand-primary-press:  var(--indigo-800);
+  --brand-primary-soft:   var(--indigo-50);
+  --brand-accent:         var(--coral-500);
+  --brand-accent-hover:   var(--coral-600);
+  --brand-accent-soft:    var(--coral-50);
+
+  /* Surfaces */
+  --surface-page:    var(--neutral-50);
+  --surface-card:    var(--neutral-0);
+  --surface-sunken:  var(--neutral-100);
+  --surface-inset:   var(--neutral-50);
+  --surface-inverse: var(--indigo-900);
+  --surface-brand:   var(--indigo-600);
+
+  /* Text */
+  --text-strong:     var(--neutral-900);
+  --text-body:       var(--neutral-700);
+  --text-muted:      var(--neutral-500);
+  --text-subtle:     var(--neutral-400);
+  --text-on-brand:   var(--neutral-0);
+  --text-on-accent:  var(--neutral-0);
+  --text-link:       var(--indigo-600);
+
+  /* Borders & dividers */
+  --border-subtle:   var(--neutral-200);
+  --border-default:  var(--neutral-300);
+  --border-strong:   var(--neutral-400);
+  --border-brand:    var(--indigo-200);
+  --ring-focus:      color-mix(in srgb, var(--indigo-600) 38%, transparent);
+
+  /* Status — foreground / background / border triplets */
+  --status-paid-fg:      var(--green-700);
+  --status-paid-bg:      var(--green-50);
+  --status-paid-bd:      var(--green-100);
+
+  --status-pending-fg:   var(--amber-700);
+  --status-pending-bg:   var(--amber-50);
+  --status-pending-bd:   var(--amber-100);
+
+  --status-approved-fg:  var(--blue-700);
+  --status-approved-bg:  var(--blue-50);
+  --status-approved-bd:  var(--blue-100);
+
+  --status-rejected-fg:  var(--coral-700);
+  --status-rejected-bg:  var(--coral-50);
+  --status-rejected-bd:  var(--coral-100);
+
+  --status-neutral-fg:   var(--neutral-600);
+  --status-neutral-bg:   var(--neutral-100);
+  --status-neutral-bd:   var(--neutral-200);
+
+  /* Attendance accents */
+  --att-present: var(--green-500);
+  --att-absent:  var(--coral-500);
+  --att-half:    var(--amber-500);
+  --att-leave:   var(--blue-500);
+  --att-off:     var(--neutral-300);
+}

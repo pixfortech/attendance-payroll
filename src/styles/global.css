@@ -1,0 +1,9 @@
+/* Tailwind layers. Brand tokens live in tokens/*.css and base.css, which are
+   imported after this file in main.tsx so the brand reset wins over preflight. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+#root {
+  min-height: 100vh;
+}

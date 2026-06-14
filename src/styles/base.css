@@ -1,0 +1,51 @@
+/* ============================================================
+   GANGURAM PAYROLL — BASE / RESET
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: var(--lh-normal);
+  color: var(--text-body);
+  background: var(--surface-page);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "ss01" 1;
+}
+
+h1, h2, h3, h4, h5, h6, p { margin: 0; }
+h1, h2, h3, h4 { color: var(--text-strong); font-family: var(--font-display); }
+
+a { color: var(--text-link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+button { font-family: inherit; }
+
+/* Tabular numerals helper for any currency / count figure */
+.tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1, "lnum" 1; }
+
+/* Thin, branded scrollbars inside dashboard panels */
+.gx-scroll { scrollbar-width: thin; scrollbar-color: var(--neutral-300) transparent; }
+.gx-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.gx-scroll::-webkit-scrollbar-thumb { background: var(--neutral-300); border-radius: var(--radius-pill); }
+.gx-scroll::-webkit-scrollbar-thumb:hover { background: var(--neutral-400); }
+
+::selection { background: var(--indigo-100); color: var(--indigo-900); }
+
+/* Shared spinner keyframe (used by Button loading state) */
+@keyframes gx-spin { to { transform: rotate(360deg); } }
+
+/* Native inputs inherit the brand font */
+input, select, textarea { font-family: var(--font-sans); }
+
+/* Print — show only the salary slip when printing */
+@media print {
+  body * { visibility: hidden; }
+  .gx-print, .gx-print * { visibility: visible; }
+  .gx-print { position: absolute; inset: 0; margin: 0; box-shadow: none !important; }
+  .gx-no-print { display: none !important; }
+}
