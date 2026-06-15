@@ -6,6 +6,7 @@ import { NotificationBell } from '../../components/layout/NotificationBell';
 import { PROOF_META } from '../../components/payroll/statusMeta';
 import { useAppStore } from '../../store/AppStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
+import { activeBranches, employeeInBranch } from '../../lib/branches';
 import { PROOF_METHOD_LABEL } from '../../services/attendance';
 import { CURRENT_MONTH } from '../../data';
 import { MARK_CYCLE, workedFromMarks, type Mark } from '../../data/attendanceMarks';
@@ -32,16 +33,18 @@ export function ManagerPortal() {
   const navigate = useNavigate();
   const { session, branches, employees, checkins, attendanceMarks, setAttendanceMark, setLeaveStatus, approveCheckin, logout } = useAppStore();
   const isMobile = useIsMobile();
-  const branch = session?.branch ?? branches[0]?.name ?? '';
+  const branch = session?.branch ?? activeBranches(branches)[0]?.name ?? branches[0]?.name ?? '';
+  const branchInfo = branches.find((b) => b.name === branch);
+  const branchCode = branchInfo?.code ?? '';
   const signOut = () => { logout(); navigate('/login'); };
   const [section, setSection] = useState<Section>('overview');
   const [bulkOpen, setBulkOpen] = useState(false);
 
-  const staff = employees.filter((e) => e.branch === branch);
-  const branchInfo = branches.find((b) => b.name === branch);
+  const staff = employees.filter((e) => employeeInBranch(e, branchCode, branches));
   const pendingLeaves = staff.flatMap((e) => e.leaves.filter((l) => l.status === 'pending').map((l) => ({ ...l, emp: e })));
   const branchCheckins = checkins.filter((c) => c.branch === branch);
   const pendingProof = branchCheckins.filter((c) => !c.approved);
+  const presentToday = new Set(branchCheckins.map((c) => c.employeeId)).size;
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--surface-page)', paddingBottom: isMobile ? 76 : 0 }}>
@@ -69,7 +72,7 @@ export function ManagerPortal() {
           <>
             <div className="gx-grid gx-grid-stats">
               <StatCard label="Branch staff" value={staff.length} icon="users" tone="brand" />
-              <StatCard label="Present today" value={branchInfo?.presentToday ?? 0} suffix={`/ ${branchInfo?.staffCount ?? staff.length}`} icon="circleCheck" tone="green" />
+              <StatCard label="Present today" value={presentToday} suffix={`/ ${staff.length}`} icon="circleCheck" tone="green" />
               <StatCard label="Leave to review" value={pendingLeaves.length} icon="clock" tone="amber" onClick={() => setSection('leave')} />
               <StatCard label="Proof to approve" value={pendingProof.length} icon="shield" tone="coral" onClick={() => setSection('proof')} />
             </div>

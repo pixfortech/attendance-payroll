@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Chip, Icon, Input, Select } from '../components/ui';
 import { useAppStore } from '../store/AppStore';
+import { activeBranchNames } from '../lib/branches';
 import { useAuth } from '../auth/AuthProvider';
 import type { Role } from '../types';
 import logo from '../assets/ganguram-logo.png';
@@ -25,9 +26,10 @@ export function LoginPage() {
   const { branches, employees, login } = useAppStore();
   const { configured } = useAuth();
   const portalEmployees = employees.filter((e) => e.login === 'enabled');
+  const branchNames = activeBranchNames(branches);
 
   const [role, setRole] = useState<Role>('admin');
-  const [branch, setBranch] = useState(branches[0]?.name ?? '');
+  const [branch, setBranch] = useState(branchNames[0] ?? '');
   const [employeeId, setEmployeeId] = useState(portalEmployees[0]?.id ?? employees[0]?.id ?? '');
   const [id, setId] = useState('demo@ganguram.in');
   const [password, setPassword] = useState('demo');
@@ -121,7 +123,7 @@ export function LoginPage() {
             }}
             style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 18 }}
           >
-            {role === 'manager' && <Select label="Branch" value={branch} onChange={(e) => setBranch(e.target.value)} options={branches.map((b) => b.name)} />}
+            {role === 'manager' && <Select label="Branch" value={branch} onChange={(e) => setBranch(e.target.value)} options={branchNames} />}
             {role === 'employee' && (
               <Select label="Employee" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} options={(portalEmployees.length ? portalEmployees : employees).map((e) => ({ value: e.id, label: e.name }))} />
             )}

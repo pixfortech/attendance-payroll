@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Avatar, Badge, Button, Card, Icon, Input, Select, Switch } from '../components/ui';
 import { PROOF_META } from '../components/payroll/statusMeta';
 import { useAppStore } from '../store/AppStore';
-import { BRANCH_NAMES } from '../data';
+import { activeBranchNames } from '../lib/branches';
 import type { Employee, ProofFactors, ProofStrength } from '../types';
 import logo from '../assets/ganguram-logo.png';
 import gauri from '../assets/gauri-mascot.png';
@@ -17,7 +17,8 @@ function nowTime(): string {
 export function KioskPage() {
   const navigate = useNavigate();
   const { employees, branches, addCheckin } = useAppStore();
-  const [branchName, setBranchName] = useState(BRANCH_NAMES[0]);
+  const branchNames = activeBranchNames(branches);
+  const [branchName, setBranchName] = useState(branchNames[0] ?? '');
   const [step, setStep] = useState<Step>('select');
   const [selected, setSelected] = useState<Employee | null>(null);
   const [pin, setPin] = useState('');
@@ -72,7 +73,7 @@ export function KioskPage() {
         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Branch kiosk</span>
         <div style={{ flex: 1 }} />
         <div style={{ width: 200, maxWidth: '45vw' }}>
-          <Select value={branchName} onChange={(e) => { setBranchName(e.target.value); reset(); }} options={BRANCH_NAMES} />
+          <Select value={branchName} onChange={(e) => { setBranchName(e.target.value); reset(); }} options={branchNames} />
         </div>
         <Button variant="ghost" size="sm" iconLeft={<Icon name="logout" size={15} />} onClick={() => navigate('/branches')}>Exit</Button>
       </header>

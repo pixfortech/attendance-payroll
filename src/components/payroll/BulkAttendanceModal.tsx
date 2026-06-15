@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Button, Checkbox, Chip, Icon, Input, Modal, Select, useConfirm } from '../ui';
 import { useAppStore } from '../../store/AppStore';
+import { activeBranchNames, employeeInBranch } from '../../lib/branches';
 import { CURRENT_MONTH } from '../../data';
 import type { Mark } from '../../data/attendanceMarks';
 
@@ -15,13 +16,15 @@ const MARKS: { id: Mark; label: string }[] = [
 export function BulkAttendanceModal({ onClose, branchLocked }: { onClose: () => void; branchLocked?: string }) {
   const { employees, branches, bulkMark, logAudit } = useAppStore();
   const confirm = useConfirm();
-  const [branch, setBranch] = useState(branchLocked ?? branches[0].name);
+  const branchNames = activeBranchNames(branches);
+  const [branch, setBranch] = useState(branchLocked ?? branchNames[0] ?? '');
   const [day, setDay] = useState('1');
   const [mark, setMark] = useState<Mark>('P');
   const [note, setNote] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
 
-  const staff = employees.filter((e) => e.branch === branch && e.status === 'active');
+  const branchCode = branches.find((b) => b.name === branch)?.code ?? '';
+  const staff = employees.filter((e) => e.status === 'active' && employeeInBranch(e, branchCode, branches));
   const allSelected = staff.length > 0 && selected.length === staff.length;
   const toggle = (id: string) => setSelected((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   const toggleAll = () => setSelected(allSelected ? [] : staff.map((e) => e.id));
@@ -58,7 +61,7 @@ export function BulkAttendanceModal({ onClose, branchLocked }: { onClose: () => 
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <Select label="Branch" value={branch} onChange={(e) => { setBranch(e.target.value); setSelected([]); }} options={branches.map((b) => b.name)} disabled={!!branchLocked} />
+          <Select label="Branch" value={branch} onChange={(e) => { setBranch(e.target.value); setSelected([]); }} options={branchNames} disabled={!!branchLocked} />
           <Select label={`Working day (1–${CURRENT_MONTH.workingDays})`} value={day} onChange={(e) => setDay(e.target.value)} options={Array.from({ length: CURRENT_MONTH.workingDays }, (_, i) => String(i + 1))} />
         </div>
 

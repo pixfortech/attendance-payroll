@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { Badge, Button, Icon, Select, useToast } from '../components/ui';
 import { useAppStore } from '../store/AppStore';
 import { employeeBreakdown, employeeTiffinTotal } from '../lib/payroll';
+import { branchFilterOptions, branchNameForFilter, employeeInBranch } from '../lib/branches';
 import { downloadCsv } from '../lib/download';
 import { round2 } from '../services';
-import { BRANCH_NAMES, CURRENT_MONTH } from '../data';
+import { CURRENT_MONTH } from '../data';
 import type { IconName } from '../components/ui';
 
 type Tone = 'brand' | 'blue' | 'amber' | 'green' | 'coral';
@@ -35,8 +36,8 @@ export function ReportsPage() {
   const [month, setMonth] = useState<string>(CURRENT_MONTH.label);
   const [branch, setBranch] = useState('');
 
-  const list = employees.filter((e) => !branch || e.branch === branch);
-  const branchList = branches.filter((b) => !branch || b.name === branch);
+  const list = employees.filter((e) => employeeInBranch(e, branch, branches));
+  const branchList = branches.filter((b) => !branch || b.code === branch);
 
   const generators: Record<string, () => (string | number)[][]> = {
     'Monthly salary sheet': () => [
@@ -109,10 +110,10 @@ export function ReportsPage() {
           <Select value={month} onChange={(e) => setMonth(e.target.value)} options={[CURRENT_MONTH.label, 'February 2026', 'Q4 FY25-26']} />
         </div>
         <div style={{ minWidth: 170, flex: '0 1 190px' }}>
-          <Select value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="All branches" options={['', ...BRANCH_NAMES]} />
+          <Select value={branch} onChange={(e) => setBranch(e.target.value)} options={branchFilterOptions(branches)} />
         </div>
         <div style={{ flex: 1 }} />
-        <Badge variant="brand" icon="filter">{branch || 'All branches'} · {month}</Badge>
+        <Badge variant="brand" icon="filter">{branchNameForFilter(branch, branches)} · {month}</Badge>
       </div>
 
       <div className="gx-grid gx-grid-stats3">

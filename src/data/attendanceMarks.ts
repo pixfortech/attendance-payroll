@@ -35,6 +35,19 @@ export function countMark(marks: Mark[], mark: Mark): number {
   return marks.filter((m) => m === mark).length;
 }
 
+/** Derive an employee's month attendance figures from a row of daily marks.
+ *  Single source of truth used by manual marking, bulk marking and Firestore
+ *  hydration so worked-days/salary always agree with the grid. */
+export function figuresFromMarks(marks: Mark[]): { worked: number; daysPresent: number; daysAbsent: number; daysHalf: number; leaveUsed: number } {
+  return {
+    worked: workedFromMarks(marks),
+    daysPresent: countMark(marks, 'P'),
+    daysAbsent: countMark(marks, 'A'),
+    daysHalf: countMark(marks, 'H'),
+    leaveUsed: countMark(marks, 'L') + countMark(marks, 'A'),
+  };
+}
+
 /** Seed a month of attendance marks per employee, keyed by employee id. */
 export function buildAttendanceMarks(employees: Employee[], days = CURRENT_MONTH.workingDays): Record<string, Mark[]> {
   const out: Record<string, Mark[]> = {};

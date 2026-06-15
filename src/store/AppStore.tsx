@@ -25,7 +25,7 @@ import type {
   TiffinLabel,
 } from '../types';
 import { BRANCHES, CHECKINS, EMPLOYEES, FORMULA_BLOCKS, NOTICES } from '../data';
-import { buildAttendanceMarks, workedFromMarks, countMark, type Mark } from '../data/attendanceMarks';
+import { buildAttendanceMarks, figuresFromMarks, type Mark } from '../data/attendanceMarks';
 import { CURRENT_MONTH } from '../data/month';
 import { evaluateEligibility } from '../services/eligibility';
 import { allocatePaidLeave } from '../services/leave';
@@ -90,6 +90,8 @@ const sessionLabel = (s: Session | null) => (s ? `${s.name} (${s.role})` : 'Syst
 export interface NewEmployeeInput {
   name: string;
   branch: string;
+  /** Stable branch code (Firestore branchId); derived from the branch when omitted. */
+  branchCode?: string;
   role: string;
   salary: number;
   basis: Employee['basis'];
@@ -107,12 +109,13 @@ export interface NewBranchInput {
 }
 
 function makeEmployee(input: NewEmployeeInput, branches: Branch[], tiffinLabels: TiffinLabel[]): Employee {
-  const code = branches.find((b) => b.name === input.branch)?.code ?? input.branch.slice(0, 2).toUpperCase();
+  const code = input.branchCode ?? branches.find((b) => b.name === input.branch)?.code ?? input.branch.slice(0, 2).toUpperCase();
   const id = `GNG-${code}-${Math.floor(1000 + Math.random() * 8999)}`;
   return {
     id,
     name: input.name,
     branch: input.branch,
+    branchCode: code,
     role: input.role,
     joined: input.joined,
     isJoiningMonth: true,
@@ -353,7 +356,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         const [attDocs, fbEntries, fbAudits] = await Promise.all([loadAttendance(), loadSalaryEntries(), loadAuditLogs()]);
         if (attDocs.length) {
           const { marks, checkins: hydratedCheckins } = hydrateAttendance(attDocs, empForLookup, brForLookup);
-          if (Object.keys(marks).length) setAttendanceMarks((prev) => ({ ...prev, ...marks }));
+          if (Object.keys(marks).length) {
+            setAttendanceMarks((prev) => ({ ...prev, ...marks }));
+            // Firestore attendance is the source of truth for worked days — recompute
+            // each affected employee's figures so salary/portal reflect it after refresh.
+            setEmployees((prev) => prev.map((e) => (marks[e.id] ? { ...e, ...figuresFromMarks(marks[e.id]) } : e)));
+          }
           setCheckins(hydratedCheckins);
         }
         if (fbEntries.length) setSalaryEntries(fbEntries);
@@ -556,7 +564,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           const base = attendanceMarks[e.id] ?? Array.from({ length: CURRENT_MONTH.workingDays }, () => 'O' as Mark);
           const row = [...base];
           row[dayIndex] = mark;
-          updatedById.set(e.id, { ...e, worked: workedFromMarks(row), daysPresent: countMark(row, 'P'), daysAbsent: countMark(row, 'A'), daysHalf: countMark(row, 'H'), leaveUsed: countMark(row, 'L') + countMark(row, 'A') });
+          updatedById.set(e.id, { ...e, ...figuresFromMarks(row) });
         }
         setAttendanceMarks((prev) => {
           const next = { ...prev };
@@ -807,7 +815,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         row[dayIndex] = mark;
         setAttendanceMarks((prev) => ({ ...prev, [employeeId]: row }));
         // keep the employee's worked / leave figures in sync with the grid
-        const next = emp ? { ...emp, worked: workedFromMarks(row), daysPresent: countMark(row, 'P'), daysAbsent: countMark(row, 'A'), daysHalf: countMark(row, 'H'), leaveUsed: countMark(row, 'L') + countMark(row, 'A') } : undefined;
+        const next = emp ? { ...emp, ...figuresFromMarks(row) } : undefined;
         setEmployees((emps) => emps.map((e) => (e.id === employeeId && next ? next : e)));
         if (next) {
           persistEmployee(next);

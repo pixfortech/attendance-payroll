@@ -1,16 +1,18 @@
 import { useState } from 'react';
 import { Button, Input, Modal, Select } from '../ui';
 import { useAppStore } from '../../store/AppStore';
-import { BRANCH_NAMES, CURRENT_MONTH } from '../../data';
+import { activeBranchNames } from '../../lib/branches';
+import { CURRENT_MONTH } from '../../data';
 import type { Employee } from '../../types';
 
 const ROLES = ['Counter Sales', 'Cashier', 'Kitchen', 'Packing', 'Delivery', 'Manager', 'Helper'];
 
 export function EmployeeFormModal({ employee, onClose }: { employee?: Employee; onClose: () => void }) {
-  const { addEmployee, updateEmployeeProfile } = useAppStore();
+  const { addEmployee, updateEmployeeProfile, branches } = useAppStore();
+  const branchNames = activeBranchNames(branches);
   const editing = !!employee;
   const [name, setName] = useState(employee?.name ?? '');
-  const [branch, setBranch] = useState(employee?.branch ?? BRANCH_NAMES[0]);
+  const [branch, setBranch] = useState(employee?.branch ?? branchNames[0] ?? '');
   const [role, setRole] = useState(employee?.role ?? ROLES[0]);
   const [joined, setJoined] = useState(employee?.joined ?? `01 ${CURRENT_MONTH.short}`);
   const [salary, setSalary] = useState(String(employee?.salary ?? ''));
@@ -22,7 +24,8 @@ export function EmployeeFormModal({ employee, onClose }: { employee?: Employee; 
 
   const save = () => {
     if (!valid) return;
-    const values = { name: name.trim(), branch, role, joined, salary: Number(salary), basis, phone: phone.trim() || '—', email: email.trim() || '—' };
+    const branchCode = branches.find((b) => b.name === branch)?.code;
+    const values = { name: name.trim(), branch, branchCode, role, joined, salary: Number(salary), basis, phone: phone.trim() || '—', email: email.trim() || '—' };
     if (editing) updateEmployeeProfile(employee.id, values);
     else addEmployee(values);
     onClose();
@@ -45,7 +48,7 @@ export function EmployeeFormModal({ employee, onClose }: { employee?: Employee; 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <Input label="Full name" value={name} onChange={(e) => setName(e.target.value)} icon="user" required />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <Select label="Branch" value={branch} onChange={(e) => setBranch(e.target.value)} options={BRANCH_NAMES} />
+          <Select label="Branch" value={branch} onChange={(e) => setBranch(e.target.value)} options={branchNames} />
           <Select label="Role / designation" value={role} onChange={(e) => setRole(e.target.value)} options={ROLES} />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>

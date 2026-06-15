@@ -5,23 +5,23 @@ import { EmployeeFormModal } from '../components/payroll/EmployeeFormModal';
 import { ImportModal } from '../components/payroll/ImportModal';
 import { useAppStore } from '../store/AppStore';
 import { employeeBreakdown } from '../lib/payroll';
+import { branchFilterOptions, employeeInBranch } from '../lib/branches';
 import { downloadCsv } from '../lib/download';
 import { formatINR0 } from '../services';
-import { BRANCH_NAMES } from '../data';
 import type { Employee } from '../types';
 
 const mono = { fontFamily: 'var(--font-mono)' as const };
 
 export function EmployeeMasterPage() {
   const navigate = useNavigate();
-  const { employees } = useAppStore();
-  const [branch, setBranch] = useState('');
+  const { employees, branches } = useAppStore();
+  const [branch, setBranch] = useState(''); // '' = All branches
   const [query, setQuery] = useState('');
   const [addOpen, setAddOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
 
   const rows = employees.filter((e) => {
-    const matchBranch = !branch || e.branch === branch;
+    const matchBranch = employeeInBranch(e, branch, branches);
     const q = query.trim().toLowerCase();
     const matchQuery = !q || e.name.toLowerCase().includes(q) || e.id.toLowerCase().includes(q) || e.role.toLowerCase().includes(q);
     return matchBranch && matchQuery;
@@ -69,7 +69,7 @@ export function EmployeeMasterPage() {
           />
         </div>
         <div style={{ flex: '1 1 160px', minWidth: 0 }}>
-          <Select value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="All branches" options={['', ...BRANCH_NAMES]} />
+          <Select value={branch} onChange={(e) => setBranch(e.target.value)} options={branchFilterOptions(branches)} />
         </div>
         <Button variant="secondary" iconLeft={<Icon name="upload" size={16} />} onClick={() => setImportOpen(true)}>Import</Button>
         <Button variant="secondary" iconLeft={<Icon name="download" size={16} />} onClick={exportCsv}>Export</Button>

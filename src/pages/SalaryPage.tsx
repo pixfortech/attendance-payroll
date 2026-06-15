@@ -5,6 +5,7 @@ import { RecordPaymentModal } from '../components/payroll/RecordPaymentModal';
 import { SALARY_STATUS_META } from '../components/payroll/statusMeta';
 import { useAppStore } from '../store/AppStore';
 import { employeeBreakdown, salaryStatus, canApproveSalary, isActiveEmployee } from '../lib/payroll';
+import { branchFilterOptions, employeeInBranch } from '../lib/branches';
 import { downloadCsv } from '../lib/download';
 import { formatINR } from '../services';
 import { CURRENT_MONTH } from '../data';
@@ -44,7 +45,7 @@ export function SalaryPage() {
     if (tab === 'pending') return s === 'pending' || s === 'requested' || s === 'notstarted';
     return s === tab;
   };
-  const rows = active.filter((e) => inTab(e) && (!branch || e.branch === branch));
+  const rows = active.filter((e) => inTab(e) && employeeInBranch(e, branch, branches));
   const count = (fn: (s: SalaryStatus) => boolean) => active.filter((e) => fn(salaryStatus(e))).length;
 
   const approveAll = async () => {
@@ -124,7 +125,7 @@ export function SalaryPage() {
         />
         <div style={{ flex: 1 }} />
         <div style={{ minWidth: 160, flex: '1 1 160px' }}>
-          <Select value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="All branches" options={['', ...branches.map((b) => b.name)]} />
+          <Select value={branch} onChange={(e) => setBranch(e.target.value)} options={branchFilterOptions(branches)} />
         </div>
         <Button variant="ghost" iconLeft={<Icon name="refresh" size={16} />} onClick={() => toast(`Salary recalculated for ${CURRENT_MONTH.label}`)}>Recalculate</Button>
         <Button variant="secondary" iconLeft={<Icon name="download" size={16} />} onClick={exportCsv}>Excel</Button>

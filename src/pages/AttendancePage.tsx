@@ -4,9 +4,11 @@ import { BulkAttendanceModal } from '../components/payroll/BulkAttendanceModal';
 import { PROOF_META } from '../components/payroll/statusMeta';
 import { useAppStore } from '../store/AppStore';
 import { useIsMobile } from '../hooks/useMediaQuery';
+import { isActiveEmployee } from '../lib/payroll';
+import { branchFilterOptions, branchNameForFilter, employeeInBranch } from '../lib/branches';
 import { PROOF_METHOD_LABEL } from '../services/attendance';
 import { downloadCsv } from '../lib/download';
-import { BRANCH_NAMES, CURRENT_MONTH } from '../data';
+import { CURRENT_MONTH } from '../data';
 import { MARK_CYCLE, workedFromMarks, countMark, type Mark } from '../data/attendanceMarks';
 import type { AttendanceRecord } from '../types';
 import type { IconName } from '../components/ui';
@@ -30,20 +32,23 @@ const METHODS: { icon: IconName; name: string; desc: string; status: string; ton
 ];
 
 export function AttendancePage() {
-  const { employees, checkins, attendanceMarks, setAttendanceMark } = useAppStore();
+  const { employees, branches, checkins, attendanceMarks, setAttendanceMark } = useAppStore();
   const isMobile = useIsMobile();
   const [view, setView] = useState('grid');
-  const [branch, setBranch] = useState(BRANCH_NAMES[0]);
+  const [branch, setBranch] = useState(''); // '' = All branches
   const [bulkOpen, setBulkOpen] = useState(false);
 
-  const gridStaff = employees.filter((e) => e.branch === branch).map((e) => ({ id: e.id, name: e.name, role: e.role, days: attendanceMarks[e.id] ?? Array.from({ length: DAYS }, () => 'O' as Mark) }));
+  const branchName = branchNameForFilter(branch, branches);
+  const gridStaff = employees
+    .filter((e) => isActiveEmployee(e) && employeeInBranch(e, branch, branches))
+    .map((e) => ({ id: e.id, name: e.name, role: e.role, branch: e.branch, days: attendanceMarks[e.id] ?? Array.from({ length: DAYS }, () => 'O' as Mark) }));
 
   const pendingApproval = checkins.filter((c) => !c.approved).length;
 
   const cycle = (empId: string, dayIndex: number, current: Mark) => setAttendanceMark(empId, dayIndex, nextMark(current));
 
   const exportGrid = () =>
-    downloadCsv(`attendance-${branch}-${CURRENT_MONTH.short}.csv`, [
+    downloadCsv(`attendance-${branch || 'all'}-${CURRENT_MONTH.short}.csv`, [
       ['Employee', 'Role', ...Array.from({ length: DAYS }, (_, i) => String(i + 1)), 'Worked'],
       ...gridStaff.map((s) => [s.name, s.role, ...s.days, workedFromMarks(s.days)]),
     ]);
@@ -64,23 +69,23 @@ export function AttendancePage() {
         <div style={{ flex: 1 }} />
         {view === 'grid' && (
           <div style={{ flex: '1 1 180px', minWidth: 0 }}>
-            <Select value={branch} onChange={(e) => setBranch(e.target.value)} options={BRANCH_NAMES} />
+            <Select value={branch} onChange={(e) => setBranch(e.target.value)} options={branchFilterOptions(branches)} />
           </div>
         )}
         {view === 'grid' && <Button variant="tonal" iconLeft={<Icon name="users" size={16} />} onClick={() => setBulkOpen(true)}>Bulk mark</Button>}
         {view === 'grid' && <Button variant="secondary" iconLeft={<Icon name="download" size={16} />} onClick={exportGrid}>Export</Button>}
       </div>
 
-      {view === 'grid' && (isMobile ? <MonthGridMobile staff={gridStaff} branch={branch} onCycle={cycle} /> : <MonthGridDesktop staff={gridStaff} branch={branch} onCycle={cycle} />)}
+      {view === 'grid' && (isMobile ? <MonthGridMobile staff={gridStaff} branch={branchName} showBranch={!branch} onCycle={cycle} /> : <MonthGridDesktop staff={gridStaff} branch={branchName} showBranch={!branch} onCycle={cycle} />)}
       {view === 'proof' && <ProofView checkins={checkins} />}
-      {view === 'methods' && <MethodsView branch={branch} />}
+      {view === 'methods' && <MethodsView branch={branchName} />}
 
-      {bulkOpen && <BulkAttendanceModal branchLocked={branch} onClose={() => setBulkOpen(false)} />}
+      {bulkOpen && <BulkAttendanceModal branchLocked={branch ? branchName : undefined} onClose={() => setBulkOpen(false)} />}
     </div>
   );
 }
 
-type Staff = { id: string; name: string; role: string; days: Mark[] };
+type Staff = { id: string; name: string; role: string; branch: string; days: Mark[] };
 type CycleFn = (empId: string, dayIndex: number, current: Mark) => void;
 
 function Legend() {
@@ -109,16 +114,19 @@ function MarkCell({ mark, onClick, size = 22 }: { mark: Mark; onClick: () => voi
   );
 }
 
-function MonthGridDesktop({ staff, branch, onCycle }: { staff: Staff[]; branch: string; onCycle: CycleFn }) {
+function MonthGridDesktop({ staff, branch, showBranch, onCycle }: { staff: Staff[]; branch: string; showBranch?: boolean; onCycle: CycleFn }) {
   return (
     <Card padding="0">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', flexWrap: 'wrap', gap: 10 }}>
         <div>
           <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-strong)' }}>Attendance — {CURRENT_MONTH.label}</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 2 }}>{branch} · {DAYS} working days · tap a cell to change mark</p>
+          <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 2 }}>{branch} · {staff.length} staff · {DAYS} working days · tap a cell to change mark</p>
         </div>
         <Legend />
       </div>
+      {staff.length === 0 ? (
+        <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No active staff in {branch}.</div>
+      ) : (
       <div className="gx-scroll" style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 920 }}>
           <thead>
@@ -138,7 +146,7 @@ function MonthGridDesktop({ staff, branch, onCycle }: { staff: Staff[]; branch: 
                     <Avatar name={s.name} size={32} />
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong)', whiteSpace: 'nowrap' }}>{s.name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{s.role}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{showBranch ? `${s.role} · ${s.branch}` : s.role}</div>
                     </div>
                   </div>
                 </td>
@@ -156,29 +164,31 @@ function MonthGridDesktop({ staff, branch, onCycle }: { staff: Staff[]; branch: 
           </tbody>
         </table>
       </div>
+      )}
     </Card>
   );
 }
 
-function MonthGridMobile({ staff, branch, onCycle }: { staff: Staff[]; branch: string; onCycle: CycleFn }) {
+function MonthGridMobile({ staff, branch, showBranch, onCycle }: { staff: Staff[]; branch: string; showBranch?: boolean; onCycle: CycleFn }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <Card bodyStyle={{ padding: 14 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div>
             <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-strong)' }}>Attendance — {CURRENT_MONTH.label}</h3>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{branch} · tap a day to change mark</p>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{branch} · {staff.length} staff · tap a day to change mark</p>
           </div>
           <Legend />
         </div>
       </Card>
+      {staff.length === 0 && <Card bodyStyle={{ padding: 18 }}><div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center' }}>No active staff in {branch}.</div></Card>}
       {staff.map((s) => (
         <Card key={s.id} bodyStyle={{ padding: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
             <Avatar name={s.name} size={36} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-strong)' }}>{s.name}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{s.role}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{showBranch ? `${s.role} · ${s.branch}` : s.role}</div>
             </div>
             <div style={{ textAlign: 'right' }}>
               <span style={{ fontSize: 18, fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--text-strong)' }}>{workedFromMarks(s.days)}</span>

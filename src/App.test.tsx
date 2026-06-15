@@ -102,4 +102,33 @@ describe('App — smoke & navigation', () => {
     fireEvent.click(screen.getAllByText('Approve')[0]);
     expect(screen.getAllByText('Approve').length).toBe(before - 1);
   });
+
+  it('salary branch filter defaults to All branches and filters by branch', () => {
+    render(<App />);
+    fireEvent.click(within(screen.getByRole('complementary')).getByText('Salary'));
+    // Default = All branches: employees from different branches are both listed.
+    expect(screen.getByText('Subir Maity')).toBeTruthy(); // Beadon Street
+    expect(screen.getByText('Amit Ghosh')).toBeTruthy(); // Baranagar
+    const select = screen.getByRole('combobox') as HTMLSelectElement;
+    expect(select.value).toBe(''); // defaults to All, never Beadon Street
+    // Filter to Baranagar by its stable code → only that branch's staff remain.
+    fireEvent.change(select, { target: { value: 'BN' } });
+    expect(screen.getByText('Amit Ghosh')).toBeTruthy();
+    expect(screen.queryByText('Subir Maity')).toBeNull();
+  });
+
+  it('attendance lists active staff for every branch and filters per branch', () => {
+    render(<App />);
+    fireEvent.click(within(screen.getByRole('complementary')).getByText('Attendance'));
+    // Default = All branches: active staff from multiple branches appear (not just Beadon).
+    expect(screen.getByText('Subir Maity')).toBeTruthy(); // Beadon Street
+    expect(screen.getByText('Rina Das')).toBeTruthy(); // Mishti Hub
+    expect(screen.getByText('Pooja Roy')).toBeTruthy(); // Dakshineshwar
+    const select = screen.getByRole('combobox') as HTMLSelectElement;
+    expect(select.value).toBe('');
+    // Select Mishti Hub → its staff show; Beadon staff drop off.
+    fireEvent.change(select, { target: { value: 'MH' } });
+    expect(screen.getByText('Rina Das')).toBeTruthy();
+    expect(screen.queryByText('Subir Maity')).toBeNull();
+  });
 });
