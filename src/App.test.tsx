@@ -19,12 +19,21 @@ function setViewport(isMobile: boolean) {
 
 beforeEach(() => {
   localStorage.clear(); // isolate persisted store between tests
+  // Seed a logged-in admin session (login-first app); demo mode (no Firebase).
+  localStorage.setItem('gng.v1.session', JSON.stringify({ role: 'admin', name: 'Test Admin', expiresAt: Date.now() + 3600000 }));
   window.history.pushState({}, '', '/'); // reset route (jsdom history persists)
   setViewport(false); // default: desktop
 });
 afterEach(cleanup);
 
 describe('App — smoke & navigation', () => {
+  it('redirects to the login screen when not logged in', () => {
+    localStorage.removeItem('gng.v1.session');
+    render(<App />);
+    expect(screen.getByRole('button', { name: /Sign in/ })).toBeTruthy();
+    expect(screen.queryByRole('heading', { level: 1, name: 'Dashboard' })).toBeNull();
+  });
+
   it('mounts the admin shell with the dashboard', () => {
     render(<App />);
     // Brand wordmark in the sidebar

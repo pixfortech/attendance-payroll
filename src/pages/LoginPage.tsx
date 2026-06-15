@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Chip, Icon, Input, Select } from '../components/ui';
 import { useAppStore } from '../store/AppStore';
+import { useAuth } from '../auth/AuthProvider';
 import type { Role } from '../types';
 import logo from '../assets/ganguram-logo.png';
 import gauri from '../assets/gauri-mascot.png';
@@ -21,7 +22,8 @@ const ROLES: { id: Role; label: string; icon: Parameters<typeof Icon>[0]['name']
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { branches, employees, setSession } = useAppStore();
+  const { branches, employees, login } = useAppStore();
+  const { configured } = useAuth();
   const portalEmployees = employees.filter((e) => e.login === 'enabled');
 
   const [role, setRole] = useState<Role>('admin');
@@ -32,15 +34,20 @@ export function LoginPage() {
 
   const signIn = () => {
     if (role === 'admin') {
-      setSession({ role: 'admin', name: 'Indrajit Pal' });
+      // Admin must authenticate with Firebase when configured.
+      if (configured) {
+        navigate('/admin-login');
+        return;
+      }
+      login({ role: 'admin', name: 'Master Admin' });
       navigate('/');
     } else if (role === 'manager') {
       const b = branches.find((x) => x.name === branch);
-      setSession({ role: 'manager', name: b?.manager ?? 'Branch Manager', branch });
+      login({ role: 'manager', name: b?.manager ?? 'Branch Manager', branch });
       navigate('/manager');
     } else {
       const emp = employees.find((e) => e.id === employeeId) ?? employees[0];
-      setSession({ role: 'employee', name: emp.name, employeeId: emp.id });
+      login({ role: 'employee', name: emp.name, employeeId: emp.id });
       navigate('/portal');
     }
   };

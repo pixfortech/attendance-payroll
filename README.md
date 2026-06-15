@@ -339,7 +339,7 @@ service cloud.firestore {
 
 ### 4. Use it
 
-- Visit the app → you're routed to **`/admin-login`** (when Firebase is configured) → sign in with the Master Admin email/password → Admin Portal.
+- The app is **login-first**: the root URL redirects to **`/login`** when no session exists. Pick a role — **Admin** goes to Firebase email/password sign-in (`/admin-login` when configured), **Manager/Employee** use the local/demo PIN flow. After login you're routed to the matching dashboard, and the session lasts a configurable window (default 12h) before expiring back to login.
 - **Add/edit employees and branches** write through to Firestore (`employees` and `branches` collections, keyed by id). **Import CSV/XLSX** (Employee Master → Import, Branch Management → Import) bulk-writes too.
 - If Firestore access is blocked by rules or unreachable, a clear error toast is shown and the app falls back to local data. **Settings → Data &amp; sync** shows the live status and your UID.
 - Managers/Employees sign in from **`/login`** (role + demo PIN) — unchanged.

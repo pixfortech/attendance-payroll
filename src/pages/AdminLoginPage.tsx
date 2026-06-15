@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Icon, Input } from '../components/ui';
 import { useAuth } from '../auth/AuthProvider';
+import { useAppStore } from '../store/AppStore';
 import logo from '../assets/ganguram-logo.png';
 import gauri from '../assets/gauri-mascot.png';
 
 export function AdminLoginPage() {
   const navigate = useNavigate();
   const { configured, signIn } = useAuth();
+  const { login } = useAppStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -17,12 +19,14 @@ export function AdminLoginPage() {
     e.preventDefault();
     setError(null);
     if (!configured) {
+      login({ role: 'admin', name: 'Demo Admin' });
       navigate('/');
       return;
     }
     setBusy(true);
     try {
       await signIn(email.trim(), password);
+      login({ role: 'admin', name: email.trim() || 'Master Admin' });
       navigate('/');
     } catch (err) {
       const code = (err as { code?: string })?.code ?? '';
@@ -84,7 +88,7 @@ export function AdminLoginPage() {
                 <Icon name="info" size={14} style={{ marginTop: 1, flexShrink: 0 }} />
                 <span>Firebase is not configured. Add your <strong>VITE_FIREBASE_*</strong> env vars (see README) to enable secure admin login. Continuing in demo mode.</span>
               </div>
-              <Button variant="primary" size="lg" full onClick={() => navigate('/')} iconRight={<Icon name="chevronRight" size={17} />}>Enter demo admin</Button>
+              <Button variant="primary" size="lg" full onClick={() => { login({ role: 'admin', name: 'Demo Admin' }); navigate('/'); }} iconRight={<Icon name="chevronRight" size={17} />}>Enter demo admin</Button>
             </div>
           )}
 

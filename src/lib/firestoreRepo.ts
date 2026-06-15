@@ -5,7 +5,7 @@
    (no PIN is ever written — PIN/role login stays local/demo). Reads/writes
    throw normalised errors so the UI can show a clear "blocked by rules" notice.
    ============================================================ */
-import { collection, doc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from './firebase';
 import type { Branch, Employee } from '../types';
 
@@ -80,6 +80,24 @@ export async function bulkUpsertEmployees(employees: Employee[]): Promise<void> 
     const batch = writeBatch(db);
     for (const e of employees) batch.set(doc(db, 'employees', e.id), employeeDoc(e));
     await batch.commit();
+  } catch (err) {
+    throw normalise(err);
+  }
+}
+
+export async function deleteEmployeeDoc(id: string): Promise<void> {
+  if (!db) return;
+  try {
+    await deleteDoc(doc(db, 'employees', id));
+  } catch (err) {
+    throw normalise(err);
+  }
+}
+
+export async function deleteBranchDoc(id: string): Promise<void> {
+  if (!db) return;
+  try {
+    await deleteDoc(doc(db, 'branches', id));
   } catch (err) {
     throw normalise(err);
   }

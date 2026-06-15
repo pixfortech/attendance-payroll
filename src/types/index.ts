@@ -147,6 +147,10 @@ export interface Employee {
 
   /* Current-month payroll-run state */
   payrollStatus: PayrollStatus;
+  /** Employee asked for their salary to be processed (allows approval at 0 worked days). */
+  salaryRequested?: boolean;
+  /** Archived employees are excluded from active counts and default lists. */
+  archived?: boolean;
   /** Optional note surfaced on the salary slip (e.g. new-joiner rule). */
   note?: string;
 
@@ -171,6 +175,7 @@ export interface Branch {
   payable: number;
   status: 'active' | 'inactive';
   defaultBasis: SalaryBasis;
+  archived?: boolean;
   geofence: BranchGeofence;
   qr: BranchQr;
 }
@@ -262,6 +267,40 @@ export interface Session {
   employeeId?: string;
   /** For manager sessions — the branch they manage. */
   branch?: string;
+  /** Epoch ms when this session expires (login-first session window). */
+  expiresAt?: number;
+}
+
+/* ---------- Salary status (derived) ---------- */
+export type SalaryStatus = 'notstarted' | 'requested' | 'pending' | 'approved' | 'paid' | 'hold';
+
+/* ---------- Notifications ---------- */
+export type NotificationType =
+  | 'salary_requested'
+  | 'salary_approved'
+  | 'salary_hold'
+  | 'salary_paid'
+  | 'payment_requested'
+  | 'payment_confirmed'
+  | 'payment_disputed'
+  | 'leave_approved'
+  | 'leave_rejected'
+  | 'attendance_approved'
+  | 'attendance_correction'
+  | 'advance_added'
+  | 'advance_adjusted'
+  | 'admin_override';
+
+export interface AppNotification {
+  id: string;
+  /** Who should see it — by role and/or specific employee. */
+  recipient: { role?: Role; employeeId?: string };
+  type: NotificationType;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: string;
+  relatedId?: string;
 }
 
 /* ---------- Audit log (admin overrides) ---------- */

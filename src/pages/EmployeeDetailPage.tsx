@@ -38,7 +38,7 @@ const BASIS_LABEL: Record<Employee['basis'], string> = { fixed30: 'Fixed 30-day'
 export function EmployeeDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { getEmployee, setEmployeeStatus } = useAppStore();
+  const { getEmployee, setEmployeeStatus, archiveEmployee, deleteEmployee } = useAppStore();
   const confirm = useConfirm();
   const emp = id ? getEmployee(id) : undefined;
   const [tab, setTab] = useState('profile');
@@ -53,6 +53,22 @@ export function EmployeeDetailPage() {
       if (ok) setEmployeeStatus(emp.id, 'resigned');
     } else {
       setEmployeeStatus(emp.id, 'active');
+    }
+  };
+
+  const toggleArchive = async () => {
+    if (!emp) return;
+    if (emp.archived) return archiveEmployee(emp.id, false);
+    const ok = await confirm({ title: 'Archive employee?', message: `${emp.name} will be hidden from active lists and dashboard counts. You can restore them later.`, confirmLabel: 'Archive', tone: 'primary', icon: 'lock' });
+    if (ok) archiveEmployee(emp.id, true);
+  };
+
+  const removeEmployee = async () => {
+    if (!emp) return;
+    const ok = await confirm({ title: 'Delete employee permanently?', message: `${emp.name} (${emp.id}) and their record will be permanently deleted from the database. This cannot be undone — consider Archive instead.`, confirmLabel: 'Delete permanently', tone: 'danger', icon: 'trash' });
+    if (ok) {
+      deleteEmployee(emp.id);
+      navigate('/employees');
     }
   };
 
@@ -94,6 +110,7 @@ export function EmployeeDetailPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <h2 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-strong)', letterSpacing: '-0.02em' }}>{emp.name}</h2>
               {emp.status === 'active' ? <Badge variant="present" dot>Active</Badge> : <Badge variant="locked" dot>Resigned</Badge>}
+              {emp.archived && <Badge variant="locked" icon="lock">Archived</Badge>}
               {eligible ? <Badge variant="eligible" icon="circleCheck">Leave eligible</Badge> : <Badge variant="noteligible" icon="info">Not eligible</Badge>}
             </div>
             <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 5, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
@@ -107,6 +124,8 @@ export function EmployeeDetailPage() {
             <Button variant="ghost" iconLeft={<Icon name={emp.status === 'active' ? 'logout' : 'circleCheck'} size={15} />} onClick={toggleStatus}>
               {emp.status === 'active' ? 'Mark resigned' : 'Mark active'}
             </Button>
+            <Button variant="ghost" iconLeft={<Icon name={emp.archived ? 'circleCheck' : 'lock'} size={15} />} onClick={toggleArchive}>{emp.archived ? 'Restore' : 'Archive'}</Button>
+            <IconButton icon="trash" label="Delete employee" variant="ghost" onClick={removeEmployee} />
             <Button variant="secondary" iconLeft={<Icon name="pencil" size={15} />} onClick={() => setEditOpen(true)}>Edit</Button>
             <Button variant="primary" iconLeft={<Icon name="wallet" size={16} />} onClick={() => setPayOpen(true)}>Record payment</Button>
           </div>

@@ -7,7 +7,7 @@
    helpers rather than re-deriving payroll figures inline.
    ============================================================ */
 
-import type { Employee } from '../types';
+import type { Employee, SalaryStatus } from '../types';
 import { CURRENT_MONTH } from '../data/month';
 import {
   calculateSalary,
@@ -58,4 +58,25 @@ export function employeeScope(employee: Employee): Record<string, number> {
 /** Outstanding (uncleared) advance balance. */
 export function employeeOutstandingAdvance(employee: Employee): number {
   return outstandingAdvance(employee);
+}
+
+/** Derived salary status (Not started / Request received / Pending / Approved / Paid / On hold). */
+export function salaryStatus(e: Employee): SalaryStatus {
+  if (e.payrollStatus === 'paid') return 'paid';
+  if (e.payrollStatus === 'approved') return 'approved';
+  if (e.payrollStatus === 'hold') return 'hold';
+  if (e.salaryRequested) return 'requested';
+  if (e.worked === 0) return 'notstarted';
+  return 'pending';
+}
+
+/** Salary can be approved with worked days, or when the employee requested it. */
+export function canApproveSalary(e: Employee): boolean {
+  if (e.payrollStatus === 'paid' || e.payrollStatus === 'approved') return false;
+  return e.worked >= 1 || !!e.salaryRequested;
+}
+
+/** Active = not archived and not resigned. */
+export function isActiveEmployee(e: Employee): boolean {
+  return !e.archived && e.status === 'active';
 }

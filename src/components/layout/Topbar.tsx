@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { Button, Icon, IconButton } from '../ui';
+import { NotificationBell } from './NotificationBell';
 import { CURRENT_MONTH } from '../../data';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 
@@ -46,10 +47,7 @@ export function Topbar({ title, subtitle, onMenu }: { title: string; subtitle?: 
         </>
       )}
 
-      <div style={{ position: 'relative' }}>
-        <IconButton icon="bell" label="Notifications" variant="secondary" />
-        <span style={{ position: 'absolute', top: 6, right: 6, width: 8, height: 8, borderRadius: '50%', background: 'var(--coral-500)', border: '2px solid var(--surface-card)' }} />
-      </div>
+      <NotificationBell viewer={{ role: 'admin' }} />
     </header>
   );
 }

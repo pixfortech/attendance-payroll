@@ -31,10 +31,11 @@ function AuthSplash() {
   );
 }
 
-/** Admin suite — requires Firebase Auth (when configured); routes other roles away. */
+/** Admin suite — login-first; requires Firebase Auth (when configured). */
 function AdminRoute() {
   const { session } = useAppStore();
   const { adminAuthed, loading } = useAuth();
+  if (!session) return <Navigate to="/login" replace />;
   if (session.role === 'employee') return <Navigate to="/portal" replace />;
   if (session.role === 'manager') return <Navigate to="/manager" replace />;
   if (loading) return <AuthSplash />;
@@ -45,8 +46,16 @@ function AdminRoute() {
 /** Manager portal — admins may view it too; employees are sent to their portal. */
 function ManagerRoute() {
   const { session } = useAppStore();
+  if (!session) return <Navigate to="/login" replace />;
   if (session.role === 'employee') return <Navigate to="/portal" replace />;
   return <ManagerPortal />;
+}
+
+/** Employee portal — login-first. */
+function PortalRoute() {
+  const { session } = useAppStore();
+  if (!session) return <Navigate to="/login" replace />;
+  return <PortalPage />;
 }
 
 export function App() {
@@ -76,7 +85,7 @@ export function App() {
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/admin-login" element={<AdminLoginPage />} />
                 <Route path="/kiosk" element={<KioskPage />} />
-                <Route path="/portal" element={<PortalPage />} />
+                <Route path="/portal" element={<PortalRoute />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </BrowserRouter>

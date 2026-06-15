@@ -1,8 +1,8 @@
 import { Avatar, Badge, Button, Icon, IconButton } from '../ui';
 import { formatINR, formatSignedINR } from '../../services';
-import { employeeBreakdown, employeeAdvanceRemaining } from '../../lib/payroll';
+import { employeeBreakdown, employeeAdvanceRemaining, salaryStatus } from '../../lib/payroll';
 import { CURRENT_MONTH } from '../../data';
-import { CONFIRMATION_META, PAYROLL_STATUS_META } from './statusMeta';
+import { CONFIRMATION_META, SALARY_STATUS_META } from './statusMeta';
 import type { Employee } from '../../types';
 import logo from '../../assets/ganguram-logo.png';
 
@@ -37,7 +37,7 @@ function LineItem({
 
 export function SalarySlip({ employee, onClose }: { employee: Employee; onClose: () => void }) {
   const b = employeeBreakdown(employee);
-  const status = PAYROLL_STATUS_META[employee.payrollStatus];
+  const status = SALARY_STATUS_META[salaryStatus(employee)];
   const advanceRemaining = employeeAdvanceRemaining(employee);
   const lastSalaryPayment = employee.payments.find((p) => p.type === 'Salary');
 
@@ -114,21 +114,26 @@ export function SalarySlip({ employee, onClose }: { employee: Employee; onClose:
               value={b.leaveDeduction > 0 ? formatSignedINR(-b.leaveDeduction) : formatINR(0)}
               tone={b.leaveDeduction > 0 ? 'red' : undefined}
             />
-            <LineItem label="Tiffin / food allowance" sub="Company-paid CTC · on top of salary" value={formatSignedINR(b.tiffinTotal)} tone="green" />
             {b.advanceAdjustment > 0 && (
               <LineItem label="Advance adjustment" sub={`Remaining advance balance ${formatINR(advanceRemaining)}`} value={formatSignedINR(-b.advanceAdjustment)} tone="red" />
             )}
+            <LineItem label="Total deductions" value={b.deductionTotal > 0 ? formatSignedINR(-b.deductionTotal) : formatINR(0)} tone={b.deductionTotal > 0 ? 'red' : undefined} />
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 18px', marginTop: 18, background: 'var(--indigo-50)', border: '1px solid var(--indigo-100)', borderRadius: 'var(--radius-md)' }}>
             <div>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--indigo-600)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Net payable</div>
-              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
-                Salary {formatINR(b.salaryPayable)} + Tiffin {formatINR(b.tiffinTotal)}
-                {b.advanceAdjustment > 0 ? ` − Advance ${formatINR(b.advanceAdjustment)}` : ''}
-              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>Gross {employee.salaryMissing ? '—' : formatINR(employee.salary)} − Deductions {formatINR(b.deductionTotal)}</div>
             </div>
-            <span style={{ fontSize: 26, fontWeight: 800, color: 'var(--indigo-700)', fontFamily: 'var(--font-mono)', letterSpacing: '-0.02em' }}>{formatINR(b.finalPayable)}</span>
+            <span style={{ fontSize: 26, fontWeight: 800, color: 'var(--indigo-700)', fontFamily: 'var(--font-mono)', letterSpacing: '-0.02em' }}>{formatINR(b.netSalary)}</span>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', marginTop: 10, background: 'var(--blue-50)', border: '1px solid var(--blue-100)', borderRadius: 'var(--radius-md)' }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--blue-700)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Tiffin / food allowance (CTC)</div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>Company cost · paid separately, not part of net</div>
+            </div>
+            <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--blue-700)', fontFamily: 'var(--font-mono)' }}>{formatINR(b.tiffinTotal)}</span>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, fontSize: 12.5 }}>

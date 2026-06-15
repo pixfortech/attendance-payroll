@@ -64,14 +64,18 @@ export interface SalaryBreakdown {
   leaveUnused: number;
   deductibleDays: number;
   leaveDeduction: number;
-  /** Salary portion only (excludes tiffin CTC). */
+  /** Salary portion only (excludes tiffin CTC and advance recovery). */
   salaryPayable: number;
   totalEarnings: number;
   totalDeductions: number;
+  /** All deductions combined: leave + custom + advance recovery. */
+  deductionTotal: number;
   tiffinTotal: number;
   /** Advance recovered from this month's salary. */
   advanceAdjustment: number;
-  /** Salary payable + tiffin CTC − advance adjustment + custom blocks. */
+  /** Take-home salary (gross + additions − deductions − advance). Excludes tiffin. */
+  netSalary: number;
+  /** Take-home + tiffin CTC (total company outlay). */
   finalPayable: number;
 }
 
@@ -102,7 +106,9 @@ export function calculateSalary(input: SalaryInput): SalaryBreakdown {
   const totalEarnings = round2(input.monthlySalary + extraEarnings);
   const totalDeductions = round2(leaveDeduction + extraDeductions);
   const salaryPayable = round2(totalEarnings - totalDeductions);
-  const finalPayable = round2(salaryPayable + input.tiffinTotal - advanceAdjustment);
+  const deductionTotal = round2(totalDeductions + advanceAdjustment);
+  const netSalary = round2(salaryPayable - advanceAdjustment);
+  const finalPayable = round2(netSalary + input.tiffinTotal);
 
   return {
     daily,
@@ -115,8 +121,10 @@ export function calculateSalary(input: SalaryInput): SalaryBreakdown {
     salaryPayable,
     totalEarnings,
     totalDeductions,
+    deductionTotal,
     tiffinTotal: input.tiffinTotal,
     advanceAdjustment,
+    netSalary,
     finalPayable,
   };
 }

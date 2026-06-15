@@ -51,7 +51,7 @@ export function EmployeeMasterPage() {
     { key: 'joined', header: 'Joined', render: (e) => (<div><div style={{ color: 'var(--text-body)' }}>{e.joined}</div><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{e.tenureMonths} months</div></div>) },
     { key: 'salary', header: 'Salary', render: (e) => (e.salaryMissing ? <Badge variant="pending" size="sm" dot>Salary missing</Badge> : <span style={{ ...mono, fontWeight: 600, color: 'var(--text-strong)' }}>{formatINR0(e.salary)}</span>) },
     { key: 'elig', header: 'Leave eligibility', render: (e) => (employeeBreakdown(e).eligible ? <Badge variant="eligible" dot>Eligible</Badge> : <Badge variant="noteligible" dot>Not eligible</Badge>) },
-    { key: 'status', header: 'Status', render: (e) => (e.status === 'active' ? <Badge variant="present" dot>Active</Badge> : <Badge variant="locked" dot>Resigned</Badge>) },
+    { key: 'status', header: 'Status', render: (e) => (e.archived ? <Badge variant="locked" icon="lock">Archived</Badge> : e.status === 'active' ? <Badge variant="present" dot>Active</Badge> : <Badge variant="locked" dot>Resigned</Badge>) },
     { key: 'login', header: 'Login', render: (e) => (e.login === 'enabled' ? <Badge variant="approved" icon="unlock" size="sm">Enabled</Badge> : <Badge variant="locked" icon="lock" size="sm">Disabled</Badge>) },
     { key: 'go', header: '', align: 'right', render: () => <Icon name="chevronRight" size={16} color="var(--text-subtle)" /> },
   ];

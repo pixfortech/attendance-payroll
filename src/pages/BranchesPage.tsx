@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { QRCodeCanvas } from 'qrcode.react';
-import { Badge, Button, Card, Icon, IconButton, ProgressBar, StatCard } from '../components/ui';
+import { Badge, Button, Card, Icon, IconButton, ProgressBar, StatCard, useConfirm, useToast } from '../components/ui';
 import { BranchQrModal, QR_STATUS_META, qrPayload } from '../components/payroll/BranchQrModal';
 import { BranchFormModal } from '../components/payroll/BranchFormModal';
 import { ImportModal } from '../components/payroll/ImportModal';
 import { useAppStore } from '../store/AppStore';
+import { isActiveEmployee } from '../lib/payroll';
 import { formatINR0 } from '../services';
 import type { Branch } from '../types';
 
@@ -13,10 +14,24 @@ const BASIS_LABEL = { fixed30: 'Fixed 30-day', calendar: 'Calendar-day' } as con
 
 export function BranchesPage() {
   const navigate = useNavigate();
-  const { branches, employees } = useAppStore();
+  const { branches, employees, archiveBranch, deleteBranch } = useAppStore();
+  const confirm = useConfirm();
+  const toast = useToast();
   const [qrBranch, setQrBranch] = useState<Branch | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+
+  const onArchive = async (b: Branch) => {
+    if (b.archived) return archiveBranch(b.id, false);
+    const ok = await confirm({ title: 'Archive branch?', message: `${b.name} will be hidden from active lists. You can restore it later.`, confirmLabel: 'Archive', tone: 'primary', icon: 'lock' });
+    if (ok) archiveBranch(b.id, true);
+  };
+  const onDelete = async (b: Branch) => {
+    const assigned = employees.filter((e) => isActiveEmployee(e) && (e.branchCode === b.code || e.branch === b.name)).length;
+    if (assigned > 0) return toast(`Reassign or remove ${assigned} active employee(s) before deleting ${b.name}.`, 'error');
+    const ok = await confirm({ title: 'Delete branch permanently?', message: `${b.name} (${b.code}) will be permanently deleted. This cannot be undone — consider Archive instead.`, confirmLabel: 'Delete permanently', tone: 'danger', icon: 'trash' });
+    if (ok) deleteBranch(b.id);
+  };
   const totalStaff = branches.reduce((s, b) => s + b.staffCount, 0);
   const totalPayable = branches.reduce((s, b) => s + b.payable, 0);
 
@@ -49,15 +64,18 @@ export function BranchesPage() {
                   <Icon name="building" size={22} />
                 </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-strong)' }}>{b.name}</h3>
                     <Badge variant="brand" size="sm">{b.code}</Badge>
+                    {b.archived && <Badge variant="locked" size="sm" icon="lock">Archived</Badge>}
                   </div>
                   <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 5 }}>
                     <Icon name="mapPin" size={13} /> {b.address}
                   </div>
                 </div>
                 <IconButton icon="pencil" label="Edit branch" size="sm" onClick={() => setQrBranch(b)} />
+                <IconButton icon={b.archived ? 'circleCheck' : 'lock'} label={b.archived ? 'Restore branch' : 'Archive branch'} size="sm" onClick={() => onArchive(b)} />
+                <IconButton icon="trash" label="Delete branch" size="sm" onClick={() => onDelete(b)} />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px', marginTop: 18 }}>

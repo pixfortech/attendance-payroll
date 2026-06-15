@@ -2,6 +2,7 @@ import { useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Avatar, Badge, Button, Card, Icon, StatCard, type IconName } from '../../components/ui';
 import { BulkAttendanceModal } from '../../components/payroll/BulkAttendanceModal';
+import { NotificationBell } from '../../components/layout/NotificationBell';
 import { PROOF_META } from '../../components/payroll/statusMeta';
 import { useAppStore } from '../../store/AppStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
@@ -29,9 +30,10 @@ const next = (m: Mark): Mark => MARK_CYCLE[(MARK_CYCLE.indexOf(m) + 1) % MARK_CY
 
 export function ManagerPortal() {
   const navigate = useNavigate();
-  const { session, branches, employees, checkins, attendanceMarks, setAttendanceMark, setLeaveStatus, approveCheckin } = useAppStore();
+  const { session, branches, employees, checkins, attendanceMarks, setAttendanceMark, setLeaveStatus, approveCheckin, logout } = useAppStore();
   const isMobile = useIsMobile();
-  const branch = session.branch ?? branches[0]?.name ?? '';
+  const branch = session?.branch ?? branches[0]?.name ?? '';
+  const signOut = () => { logout(); navigate('/login'); };
   const [section, setSection] = useState<Section>('overview');
   const [bulkOpen, setBulkOpen] = useState(false);
 
@@ -48,7 +50,8 @@ export function ManagerPortal() {
         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{isMobile ? 'Manager' : 'Manager portal'}</span>
         <div style={{ flex: 1 }} />
         <Badge variant="brand" icon="mapPin">{branch}</Badge>
-        <Button variant="ghost" size="sm" iconLeft={<Icon name="logout" size={15} />} onClick={() => navigate('/login')}>{isMobile ? '' : 'Sign out'}</Button>
+        <NotificationBell viewer={{ role: 'manager' }} />
+        <Button variant="ghost" size="sm" iconLeft={<Icon name="logout" size={15} />} onClick={signOut}>{isMobile ? '' : 'Sign out'}</Button>
       </header>
 
       {!isMobile && (

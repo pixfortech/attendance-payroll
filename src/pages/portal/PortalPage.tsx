@@ -2,6 +2,7 @@ import { useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Avatar, Badge, Button, Card, Icon, Input, KV, Modal, Select, StatCard, type IconName } from '../../components/ui';
 import { SalarySlip } from '../../components/payroll/SalarySlip';
+import { NotificationBell } from '../../components/layout/NotificationBell';
 import { CONFIRMATION_META, PROOF_META } from '../../components/payroll/statusMeta';
 import { useAppStore } from '../../store/AppStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
@@ -31,12 +32,13 @@ const mono = { fontFamily: 'var(--font-mono)' as const };
 
 export function PortalPage() {
   const navigate = useNavigate();
-  const { employees, session } = useAppStore();
+  const { employees, session, logout } = useAppStore();
   const isMobile = useIsMobile();
-  const emp = employees.find((e) => e.id === session.employeeId) ?? employees.find((e) => e.login === 'enabled') ?? employees[0];
+  const emp = employees.find((e) => e.id === session?.employeeId) ?? employees.find((e) => e.login === 'enabled') ?? employees[0];
   const [section, setSection] = useState<Section>('home');
   const [slip, setSlip] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
+  const signOut = () => { logout(); navigate('/login'); };
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--surface-page)', paddingBottom: isMobile ? 76 : 0 }}>
@@ -44,6 +46,7 @@ export function PortalPage() {
         <img src={logo} alt="Ganguram" style={{ height: 34 }} />
         {!isMobile && <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Employee portal</span>}
         <div style={{ flex: 1 }} />
+        <NotificationBell viewer={{ employeeId: emp.id }} />
         <Avatar name={emp.name} size={32} status="present" />
         {!isMobile && (
           <div style={{ lineHeight: 1.2 }}>
@@ -51,7 +54,7 @@ export function PortalPage() {
             <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{emp.role} · {emp.branch}</div>
           </div>
         )}
-        <Button variant="ghost" size="sm" iconLeft={<Icon name="logout" size={15} />} onClick={() => navigate('/login')}>{isMobile ? '' : 'Sign out'}</Button>
+        <Button variant="ghost" size="sm" iconLeft={<Icon name="logout" size={15} />} onClick={signOut}>{isMobile ? '' : 'Sign out'}</Button>
       </header>
 
       {!isMobile && (
@@ -74,7 +77,7 @@ export function PortalPage() {
         {section === 'attendance' && <AttendanceSection emp={emp} />}
         {section === 'leave' && <LeaveSection emp={emp} onRequest={() => setLeaveOpen(true)} />}
         {section === 'payments' && <PaymentsSection emp={emp} onSlip={() => setSlip(true)} />}
-        {section === 'profile' && <ProfileSection emp={emp} onSignOut={() => navigate('/login')} />}
+        {section === 'profile' && <ProfileSection emp={emp} onSignOut={signOut} />}
       </main>
 
       {isMobile && (
@@ -111,7 +114,7 @@ function BreakdownRow({ label, value, sub, tone }: { label: string; value: strin
 }
 
 function HomeSection({ emp, onSlip, onGoLeave }: { emp: Employee; onSlip: () => void; onGoLeave: () => void }) {
-  const { notices, updatePaymentStatus } = useAppStore();
+  const { notices, updatePaymentStatus, requestSalary } = useAppStore();
   const b = employeeBreakdown(emp);
   const advAdj = employeeAdvanceAdjustment(emp);
   const pending = emp.payments.filter((p) => p.status === 'pending');
@@ -123,7 +126,7 @@ function HomeSection({ emp, onSlip, onGoLeave }: { emp: Employee; onSlip: () => 
           <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)' }}>Namaste</div>
           <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em', color: '#fff', marginTop: 2 }}>{emp.name.split(' ')[0]}</h1>
           <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', marginTop: 6 }}>Your {CURRENT_MONTH.label} net payable (live)</p>
-          <div style={{ fontSize: 30, fontWeight: 800, ...mono, marginTop: 2 }}>{formatINR0(b.finalPayable)}</div>
+          <div style={{ fontSize: 30, fontWeight: 800, ...mono, marginTop: 2 }}>{formatINR0(b.netSalary)}</div>
           <Button variant="accent" size="sm" iconLeft={<Icon name="fileText" size={15} />} onClick={onSlip} style={{ marginTop: 10 }}>View salary slip</Button>
         </div>
       </div>
@@ -140,12 +143,21 @@ function HomeSection({ emp, onSlip, onGoLeave }: { emp: Employee; onSlip: () => 
         <BreakdownRow label="Attendance" sub={`${emp.daysPresent} present · ${emp.daysAbsent} absent · ${emp.daysHalf} half`} value={`${emp.worked} d`} />
         <BreakdownRow label="Paid / free leave" sub={`${b.freeLeaveUsed} used · ${b.leaveUnused} left of 4`} value={`${emp.leaveUsed} taken`} />
         <BreakdownRow label="Leave deduction" sub={b.leaveDeduction > 0 ? `${b.deductibleDays} deductible day(s)` : 'Within free-leave limit'} value={b.leaveDeduction > 0 ? formatSignedINR(-b.leaveDeduction) : formatINR(0)} tone={b.leaveDeduction > 0 ? 'red' : undefined} />
-        <BreakdownRow label="Tiffin / food allowance" sub="Company-paid CTC, separate from salary" value={formatSignedINR(b.tiffinTotal)} tone="green" />
+        <BreakdownRow label="Tiffin / food allowance" sub="Company-paid CTC · paid separately, not in net" value={formatSignedINR(b.tiffinTotal)} tone="green" />
         {advAdj > 0 && <BreakdownRow label="Advance adjustment" sub={`Remaining advance ${formatINR0(employeeAdvanceRemaining(emp))}`} value={formatSignedINR(-advAdj)} tone="red" />}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', marginTop: 12, background: 'var(--indigo-50)', borderRadius: 'var(--radius-md)' }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--indigo-700)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Net payable</span>
-          <span style={{ fontSize: 22, fontWeight: 800, ...mono, color: 'var(--indigo-700)' }}>{formatINR(b.finalPayable)}</span>
+          <span style={{ fontSize: 22, fontWeight: 800, ...mono, color: 'var(--indigo-700)' }}>{formatINR(b.netSalary)}</span>
         </div>
+        {emp.worked === 0 && (
+          emp.salaryRequested ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 12.5, color: 'var(--indigo-700)' }}>
+              <Icon name="circleCheck" size={15} /> Salary request sent — awaiting admin review.
+            </div>
+          ) : (
+            <Button variant="secondary" full iconLeft={<Icon name="wallet" size={16} />} onClick={() => requestSalary(emp.id)} style={{ marginTop: 12 }}>Request salary processing</Button>
+          )
+        )}
       </Card>
 
       <Card title="Pending payment confirmations" action={<Badge variant="pending">{pending.length}</Badge>}>

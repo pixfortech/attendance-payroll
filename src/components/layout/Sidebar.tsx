@@ -58,12 +58,13 @@ function NavRowInner({ label, icon, active, badge }: { label: string; icon: Icon
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const navigate = useNavigate();
-  const { employees } = useAppStore();
-  const { configured, signOut } = useAuth();
-  const pendingSalaries = employees.filter((e) => e.payrollStatus === 'pending').length;
+  const { employees, logout } = useAppStore();
+  const { signOut } = useAuth();
+  const pendingSalaries = employees.filter((e) => e.payrollStatus === 'pending' && (e.worked >= 1 || e.salaryRequested)).length;
   const handleSignOut = async () => {
     await signOut();
-    navigate(configured ? '/admin-login' : '/login');
+    logout();
+    navigate('/login');
   };
 
   return (

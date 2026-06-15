@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import type {
   Advance,
+  AppNotification,
   AttendanceRecord,
   AuditEntry,
   Branch,
@@ -17,6 +18,7 @@ import type {
   ProofFactors,
   ProofMethod,
   QrRotation,
+  Role,
   Session,
   TiffinLabel,
 } from '../types';
@@ -28,7 +30,7 @@ import { allocatePaidLeave } from '../services/leave';
 import { evaluateProof, isAutoApproved } from '../services/attendance';
 import { useToast } from '../components/ui/Toast';
 import { auth, firebaseConfigured } from '../lib/firebase';
-import { bulkUpsertBranches, bulkUpsertEmployees, loadBranches, loadEmployees, upsertBranch, upsertEmployee } from '../lib/firestoreRepo';
+import { bulkUpsertBranches, bulkUpsertEmployees, deleteBranchDoc, deleteEmployeeDoc, loadBranches, loadEmployees, upsertBranch, upsertEmployee } from '../lib/firestoreRepo';
 import { onAuthStateChanged } from 'firebase/auth';
 
 /** Company-wide default tiffin labels (used as defaults + the Tiffin module list). */
@@ -51,7 +53,10 @@ export const OVERRIDE_FIELDS = {
 } as const;
 export type OverrideField = keyof typeof OVERRIDE_FIELDS;
 
-const DEFAULT_SESSION: Session = { role: 'admin', name: 'Indrajit Pal' };
+/** How long a login stays valid (configurable session window). */
+export const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+
+const sessionLabel = (s: Session | null) => (s ? `${s.name} (${s.role})` : 'System');
 
 export interface NewEmployeeInput {
   name: string;
@@ -145,16 +150,34 @@ interface AppContextValue {
   checkins: AttendanceRecord[];
   attendanceMarks: Record<string, Mark[]>;
   tiffinLabels: TiffinLabel[];
-  session: Session;
+  session: Session | null;
   auditLog: AuditEntry[];
+  notifications: AppNotification[];
 
   getEmployee: (id: string) => Employee | undefined;
   getBranch: (id: string) => Branch | undefined;
 
-  /* Session & audit */
-  setSession: (session: Session) => void;
+  /* Session */
+  login: (session: Session) => void;
+  logout: () => void;
+
+  /* Notifications */
+  notify: (n: Omit<AppNotification, 'id' | 'read' | 'createdAt'>) => void;
+  markNotificationRead: (id: string) => void;
+  markAllNotificationsRead: (recipient: { role?: Role; employeeId?: string }) => void;
+
+  /* Audit + override */
   logAudit: (entry: Omit<AuditEntry, 'id' | 'at' | 'by'>) => void;
   overrideEmployeeField: (employeeId: string, field: OverrideField, newValue: number, reason: string) => void;
+
+  /* Salary request + lifecycle */
+  requestSalary: (employeeId: string) => void;
+
+  /* Admin archive / delete */
+  archiveEmployee: (employeeId: string, archived: boolean) => void;
+  deleteEmployee: (employeeId: string) => void;
+  archiveBranch: (branchId: string, archived: boolean) => void;
+  deleteBranch: (branchId: string) => void;
 
   /* Bulk attendance */
   bulkMark: (employeeIds: string[], dayIndex: number, mark: Mark) => void;
@@ -258,10 +281,20 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [checkins, setCheckins] = usePersistentState<AttendanceRecord[]>('checkins', CHECKINS);
   const [attendanceMarks, setAttendanceMarks] = usePersistentState<Record<string, Mark[]>>('attendanceMarks', buildAttendanceMarks(EMPLOYEES));
   const [tiffinLabels, setTiffinLabels] = usePersistentState<TiffinLabel[]>('tiffinLabels', DEFAULT_TIFFIN_LABELS);
-  const [session, setSession] = usePersistentState<Session>('session', DEFAULT_SESSION);
+  const [session, setSession] = usePersistentState<Session | null>('session', null);
   const [auditLog, setAuditLog] = usePersistentState<AuditEntry[]>('auditLog', []);
+  const [notifications, setNotifications] = usePersistentState<AppNotification[]>('notifications', []);
   const [notices] = useState<Notice[]>(NOTICES);
   const [firestoreActive, setFirestoreActive] = useState(false);
+
+  // Expire stale login sessions on load (redirects to login via route guards).
+  useEffect(() => {
+    if (session && session.expiresAt && session.expiresAt < Date.now()) setSession(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const addNotif = (n: Omit<AppNotification, 'id' | 'read' | 'createdAt'>) =>
+    setNotifications((prev) => [{ ...n, id: uid('ntf'), read: false, createdAt: new Date().toISOString() }, ...prev].slice(0, 200));
 
   // When Firebase is configured and an admin signs in, load branches/employees
   // from Firestore (Firestore becomes the source of truth; local data is the
@@ -312,12 +345,61 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       tiffinLabels,
       session,
       auditLog,
+      notifications,
       getEmployee: (id) => employees.find((e) => e.id === id),
       getBranch: (id) => branches.find((b) => b.id === id),
 
-      setSession,
+      login: (s) => setSession({ ...s, expiresAt: Date.now() + SESSION_TTL_MS }),
+      logout: () => setSession(null),
+
+      notify: addNotif,
+      markNotificationRead: (id) => setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n))),
+      markAllNotificationsRead: (recipient) =>
+        setNotifications((prev) => prev.map((n) => ((recipient.role && n.recipient.role === recipient.role) || (recipient.employeeId && n.recipient.employeeId === recipient.employeeId) ? { ...n, read: true } : n))),
+
+      requestSalary: (employeeId) => {
+        const emp = employees.find((e) => e.id === employeeId);
+        updateEmployee(employeeId, (e) => ({ ...e, salaryRequested: true }));
+        if (emp) persistEmployee({ ...emp, salaryRequested: true });
+        addNotif({ recipient: { role: 'admin' }, type: 'salary_requested', title: 'Salary requested', message: `${emp?.name ?? 'An employee'} requested salary processing`, relatedId: employeeId });
+        toast('Salary request sent');
+      },
+
+      archiveEmployee: (employeeId, archived) => {
+        const emp = employees.find((e) => e.id === employeeId);
+        updateEmployee(employeeId, (e) => ({ ...e, archived }));
+        if (emp) {
+          persistEmployee({ ...emp, archived });
+          setAuditLog((prev) => [{ id: uid('aud'), at: new Date().toISOString(), by: sessionLabel(session), entity: 'Employee', target: `${emp.name} (${emp.id})`, field: 'Archived', oldValue: String(!!emp.archived), newValue: String(archived), reason: archived ? 'Archived' : 'Restored' }, ...prev]);
+        }
+        toast(archived ? 'Employee archived' : 'Employee restored');
+      },
+      deleteEmployee: (employeeId) => {
+        const emp = employees.find((e) => e.id === employeeId);
+        setEmployees((prev) => prev.filter((e) => e.id !== employeeId));
+        if (firestoreActive) deleteEmployeeDoc(employeeId).catch((err) => toast((err as Error).message, 'error'));
+        if (emp) setAuditLog((prev) => [{ id: uid('aud'), at: new Date().toISOString(), by: sessionLabel(session), entity: 'Employee', target: `${emp.name} (${emp.id})`, field: 'Deleted', oldValue: 'exists', newValue: 'deleted', reason: 'Permanent delete' }, ...prev]);
+        toast('Employee deleted', 'info');
+      },
+      archiveBranch: (branchId, archived) => {
+        const br = branches.find((b) => b.id === branchId);
+        updateBranch(branchId, (b) => ({ ...b, archived }));
+        if (br) {
+          persistBranch({ ...br, archived });
+          setAuditLog((prev) => [{ id: uid('aud'), at: new Date().toISOString(), by: sessionLabel(session), entity: 'Branch', target: `${br.name} (${br.code})`, field: 'Archived', oldValue: String(!!br.archived), newValue: String(archived), reason: archived ? 'Archived' : 'Restored' }, ...prev]);
+        }
+        toast(archived ? 'Branch archived' : 'Branch restored');
+      },
+      deleteBranch: (branchId) => {
+        const br = branches.find((b) => b.id === branchId);
+        setBranches((prev) => prev.filter((b) => b.id !== branchId));
+        if (firestoreActive) deleteBranchDoc(branchId).catch((err) => toast((err as Error).message, 'error'));
+        if (br) setAuditLog((prev) => [{ id: uid('aud'), at: new Date().toISOString(), by: sessionLabel(session), entity: 'Branch', target: `${br.name} (${br.code})`, field: 'Deleted', oldValue: 'exists', newValue: 'deleted', reason: 'Permanent delete' }, ...prev]);
+        toast('Branch deleted', 'info');
+      },
+
       logAudit: (entry) =>
-        setAuditLog((prev) => [{ ...entry, id: uid('aud'), at: new Date().toISOString(), by: `${session.name} (${session.role})` }, ...prev]),
+        setAuditLog((prev) => [{ ...entry, id: uid('aud'), at: new Date().toISOString(), by: sessionLabel(session) }, ...prev]),
       overrideEmployeeField: (employeeId, field, newValue, reason) => {
         const emp = employees.find((e) => e.id === employeeId);
         if (!emp) return;
@@ -325,9 +407,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         updateEmployee(employeeId, (e) => ({ ...e, [field]: newValue }));
         persistEmployee({ ...emp, [field]: newValue });
         setAuditLog((prev) => [
-          { id: uid('aud'), at: new Date().toISOString(), by: `${session.name} (${session.role})`, entity: 'Employee', target: `${emp.name} (${emp.id})`, field: OVERRIDE_FIELDS[field], oldValue: String(oldValue), newValue: String(newValue), reason },
+          { id: uid('aud'), at: new Date().toISOString(), by: sessionLabel(session), entity: 'Employee', target: `${emp.name} (${emp.id})`, field: OVERRIDE_FIELDS[field], oldValue: String(oldValue), newValue: String(newValue), reason },
           ...prev,
         ]);
+        addNotif({ recipient: { role: 'admin' }, type: 'admin_override', title: 'Admin override', message: `${OVERRIDE_FIELDS[field]} for ${emp.name} changed ${String(oldValue)} → ${String(newValue)}.`, relatedId: employeeId });
         toast('Override saved to audit log');
       },
       bulkMark: (employeeIds, dayIndex, mark) => {
@@ -350,6 +433,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             return { ...e, worked: workedFromMarks(row), daysPresent: countMark(row, 'P'), daysAbsent: countMark(row, 'A'), daysHalf: countMark(row, 'H'), leaveUsed: countMark(row, 'L') + countMark(row, 'A') };
           }),
         );
+        addNotif({ recipient: { role: 'admin' }, type: 'attendance_correction', title: 'Attendance updated', message: `Bulk attendance applied to ${employeeIds.length} employee${employeeIds.length > 1 ? 's' : ''}.` });
         toast(`Marked ${employeeIds.length} employee${employeeIds.length > 1 ? 's' : ''}`);
       },
 
@@ -461,7 +545,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       /* ---- Advances ---- */
       addAdvance: (id, advance) => {
+        const emp = employees.find((e) => e.id === id);
         updateEmployee(id, (e) => ({ ...e, advances: [{ ...advance, id: uid('adv') }, ...e.advances] }));
+        addNotif({ recipient: { employeeId: id }, type: 'advance_added', title: 'Advance recorded', message: `An advance of ₹${advance.amount.toLocaleString('en-IN')} was recorded for ${emp?.name ?? 'you'}.`, relatedId: id });
         toast('Advance recorded');
       },
       updateAdvance: (id, advanceId, patch) => {
@@ -470,40 +556,52 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       },
       adjustAdvancesAgainstSalary: (id) => {
         updateEmployee(id, (e) => ({ ...e, advances: e.advances.map((a) => ({ ...a, cleared: true })) }));
+        addNotif({ recipient: { employeeId: id }, type: 'advance_adjusted', title: 'Advance adjusted', message: 'Your advance was adjusted against salary.', relatedId: id });
         toast('Advances adjusted against salary');
       },
 
       /* ---- Payments ---- */
       addPayment: (id, payment) => {
         updateEmployee(id, (e) => ({ ...e, payments: [{ ...payment, id: uid('pay') }, ...e.payments] }));
+        addNotif({ recipient: { employeeId: id }, type: 'payment_requested', title: 'Confirm payment received', message: `${payment.type} of ₹${payment.amount.toLocaleString('en-IN')} was marked paid. Please confirm receipt.`, relatedId: id });
         toast(`${payment.type} recorded — pending confirmation`);
       },
       updatePaymentStatus: (id, paymentId, status) => {
+        const emp = employees.find((e) => e.id === id);
         updateEmployee(id, (e) => ({ ...e, payments: e.payments.map((p) => (p.id === paymentId ? { ...p, status } : p)) }));
+        if (status === 'confirmed') addNotif({ recipient: { role: 'admin' }, type: 'payment_confirmed', title: 'Payment confirmed', message: `${emp?.name ?? 'Employee'} confirmed a payment was received.`, relatedId: id });
+        if (status === 'disputed') addNotif({ recipient: { role: 'admin' }, type: 'payment_disputed', title: 'Payment disputed', message: `${emp?.name ?? 'Employee'} raised an issue with a payment.`, relatedId: id });
         toast(status === 'confirmed' ? 'Payment confirmed' : status === 'disputed' ? 'Issue raised' : 'Payment updated', status === 'disputed' ? 'info' : 'success');
       },
       setPayrollStatus: (id, status) => {
+        const emp = employees.find((e) => e.id === id);
         updateEmployee(id, (e) => ({ ...e, payrollStatus: status }));
+        if (status === 'approved') addNotif({ recipient: { employeeId: id }, type: 'salary_approved', title: 'Salary approved', message: `${emp?.name ?? 'Your'} salary has been approved.`, relatedId: id });
+        if (status === 'paid') addNotif({ recipient: { employeeId: id }, type: 'salary_paid', title: 'Salary paid', message: `${emp?.name ?? 'Your'} salary has been paid — please confirm receipt.`, relatedId: id });
+        if (status === 'hold') addNotif({ recipient: { employeeId: id }, type: 'salary_hold', title: 'Salary on hold', message: `${emp?.name ?? 'Your'} salary was placed on hold.`, relatedId: id });
         toast(`Salary ${status}`);
       },
       approveAllPending: () => {
-        let n = 0;
+        const ids: string[] = [];
         setEmployees((prev) =>
           prev.map((e) => {
-            if (e.payrollStatus === 'pending') {
-              n++;
+            if (e.payrollStatus === 'pending' && (e.worked >= 1 || e.salaryRequested)) {
+              ids.push(e.id);
               return { ...e, payrollStatus: 'approved' };
             }
             return e;
           }),
         );
-        toast(n ? `${n} salaries approved` : 'No pending salaries');
-        return n;
+        ids.forEach((id) => addNotif({ recipient: { employeeId: id }, type: 'salary_approved', title: 'Salary approved', message: 'Your salary has been approved.', relatedId: id }));
+        toast(ids.length ? `${ids.length} salaries approved` : 'No pending salaries to approve');
+        return ids.length;
       },
 
       /* ---- Leave ---- */
       setLeaveStatus: (id, leaveId, status) => {
+        const emp = employees.find((e) => e.id === id);
         updateEmployee(id, (e) => recomputeLeavePaidFlags({ ...e, leaves: e.leaves.map((l) => (l.id === leaveId ? { ...l, status } : l)) }));
+        addNotif({ recipient: { employeeId: id }, type: status === 'approved' ? 'leave_approved' : 'leave_rejected', title: status === 'approved' ? 'Leave approved' : 'Leave rejected', message: `${emp?.name ? emp.name + "'s" : 'Your'} leave request was ${status}.`, relatedId: id });
         toast(status === 'approved' ? 'Leave approved' : 'Leave rejected', status === 'approved' ? 'success' : 'info');
       },
       addLeaveRequest: (id, leave) => {
@@ -536,6 +634,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         return { strength, approved };
       },
       approveCheckin: (id) => {
+        const chk = checkins.find((c) => c.id === id);
         setCheckins((prev) =>
           prev.map((c) => {
             if (c.id !== id) return c;
@@ -543,6 +642,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             return { ...c, factors, strength: evaluateProof(factors), approved: true };
           }),
         );
+        if (chk) addNotif({ recipient: { employeeId: chk.employeeId }, type: 'attendance_approved', title: 'Attendance approved', message: `Your ${chk.date} check-in was approved.`, relatedId: chk.employeeId });
         toast('Check-in approved');
       },
 
@@ -606,7 +706,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [employees, branches, formulaBlocks, notices, checkins, attendanceMarks, tiffinLabels, session, auditLog, firestoreActive],
+    [employees, branches, formulaBlocks, notices, checkins, attendanceMarks, tiffinLabels, session, auditLog, notifications, firestoreActive],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
