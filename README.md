@@ -299,7 +299,7 @@ The app ships with **sample seed data** for Ganguram branches and employees, so 
 
 The **Admin Portal** is secured by **Firebase Authentication (email/password)**. The Employee and Manager portals keep their **local/demo PIN login** for now — no Firebase users are created for them, and **no PIN is ever stored in Firestore**.
 
-When the Firebase env vars are absent, the app runs in **demo mode** (local seed data + `localStorage`), so it works out of the box. Firestore is used as the source of truth for **branches** and **employees** once configured; `localStorage` is the fallback if Firestore is unavailable.
+When the Firebase env vars are absent, the app runs in **demo mode** (local seed data + `localStorage`), so it works out of the box. Once configured, Firestore is the source of truth for **branches**, **employees** and all **operational payroll data** (attendance, salary, advances, payments, tiffin, notifications, audit) — see [§6](#6-operational-data-phase-2). `localStorage` is only the demo/offline fallback; the local demo seed is never pushed up, so existing Firestore data is never overwritten.
 
 ### 1. Configure the web app
 
@@ -362,6 +362,29 @@ employees: employeeCode, name, mobile, branchCode, branchName, role, designation
            gender, monthlySalary, joiningDate, status, salaryBasis, latitude,
            longitude, notes
 ```
+
+### 6. Operational data (Phase 2)
+
+Everything an admin does day-to-day now **persists to Firestore and survives a refresh, cross-device**. The store keeps rendering the same in-memory model, but each mutation **writes through** to a normalised collection, and on admin sign-in the app **hydrates** from Firestore (source of truth) before falling back to `localStorage`.
+
+| Collection | Written when… | Powers |
+| --- | --- | --- |
+| `attendance` | grid mark, bulk mark, kiosk/QR check-in | month grid + proof queue (reload-safe); dashboard **present today** |
+| `salaryRuns` | a salary is approved / paid / held | per-month run progress + counts |
+| `salaryEntries` | a salary is approved / paid / held | the **Salary table prefers a frozen entry** over a live recalculation |
+| `advances` | record / edit / adjust an advance | advance ledger + remaining balance |
+| `advanceAdjustments` | "Adjust against salary" | recovery history (slip shows current-month adjustment) |
+| `payments` | record a payment; confirm / dispute | Payments ledger; employee confirmation status |
+| `tiffinEntries` | "Mark today's tiffin given" | tiffin log (CTC — **never deducted**) |
+| `notifications` | any notify event | the bell, updated **live via `onSnapshot`** |
+| `auditLogs` | override / archive / delete / bulk mark | the Audit Log page |
+
+Notes:
+
+- **Source of truth:** on sign-in the app loads these collections and uses them over local state; if Firestore is empty for a collection, the local seed is left untouched (the demo data is never uploaded).
+- **Fallback:** if Firestore is blocked by rules or unreachable, a toast is shown and the app keeps working on `localStorage`.
+- **Stable ids** mean re-marking a day, re-approving a salary, or re-confirming a payment **updates** the same document instead of duplicating it.
+- **Security:** the single Master-Admin rule still gates everything; **no PIN/secret is ever written**. The employee/manager portals stay local/demo until backend token auth lands — `firestore.rules` and `src/lib/firestoreOps.ts` carry `TODO`s sketching the future role-based / custom-claim rules.
 
 > **Not a secret:** the Firebase web API key is safe to ship in the client; access is controlled by the Firestore rules above, not by hiding the key. Real server-side secrets (service accounts) are never placed in this repo.
 

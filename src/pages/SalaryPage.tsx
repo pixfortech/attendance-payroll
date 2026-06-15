@@ -13,7 +13,7 @@ import type { Employee, SalaryStatus } from '../types';
 const mono = { fontFamily: 'var(--font-mono)' as const };
 
 export function SalaryPage() {
-  const { employees, branches, setPayrollStatus, addPayment, approveAllPending } = useAppStore();
+  const { employees, branches, setPayrollStatus, addPayment, approveAllPending, salaryEntries } = useAppStore();
   const confirm = useConfirm();
   const toast = useToast();
   const [tab, setTab] = useState<'all' | 'pending' | 'approved' | 'paid'>('all');
@@ -22,6 +22,22 @@ export function SalaryPage() {
   const [payFor, setPayFor] = useState<Employee | null>(null);
 
   const active = employees.filter(isActiveEmployee);
+  // Prefer a frozen Firestore salary entry (written on approval/payment) over a
+  // live recalculation; fall back to the live breakdown when none exists.
+  const entryFor = (id: string) => salaryEntries.find((s) => s.employeeId === id && s.month === CURRENT_MONTH.month && s.year === CURRENT_MONTH.year);
+  const figures = (r: Employee) => {
+    const se = entryFor(r.id);
+    const b = employeeBreakdown(r);
+    return {
+      gross: se?.grossPayable ?? r.salary,
+      worked: se?.workedDays ?? r.worked,
+      leaveUsed: se?.leaveUsed ?? r.leaveUsed,
+      freeLeaveAllowed: b.freeLeaveAllowed,
+      deductionTotal: se?.deductionTotal ?? b.deductionTotal,
+      tiffinTotal: se?.tiffinCtc ?? b.tiffinTotal,
+      netSalary: se?.netPayable ?? b.netSalary,
+    };
+  };
   const inTab = (e: Employee) => {
     const s = salaryStatus(e);
     if (tab === 'all') return true;
@@ -42,8 +58,8 @@ export function SalaryPage() {
     downloadCsv(`salary-${CURRENT_MONTH.short}.csv`, [
       ['Employee', 'ID', 'Branch', 'Gross payable', 'Worked', 'Leave used', 'Free leave', 'Deduction', 'Tiffin CTC', 'Net payable', 'Status'],
       ...rows.map((r) => {
-        const b = employeeBreakdown(r);
-        return [r.name, r.id, r.branch, r.salaryMissing ? 'missing' : r.salary, r.worked, r.leaveUsed, b.freeLeaveAllowed, b.deductionTotal, b.tiffinTotal, b.netSalary, SALARY_STATUS_META[salaryStatus(r)].label];
+        const f = figures(r);
+        return [r.name, r.id, r.branch, r.salaryMissing ? 'missing' : f.gross, f.worked, f.leaveUsed, f.freeLeaveAllowed, f.deductionTotal, f.tiffinTotal, f.netSalary, SALARY_STATUS_META[salaryStatus(r)].label];
       }),
     ]);
 
@@ -75,20 +91,20 @@ export function SalaryPage() {
         </div>
       ),
     },
-    { key: 'gross', header: 'Gross payable', align: 'right', render: (r) => (r.salaryMissing ? <Badge variant="pending" size="sm" dot>Salary missing</Badge> : <span style={mono}>{formatINR(r.salary)}</span>) },
-    { key: 'worked', header: 'Worked', align: 'right', render: (r) => <span style={{ ...mono, color: 'var(--text-body)' }}>{r.worked} d</span> },
+    { key: 'gross', header: 'Gross payable', align: 'right', render: (r) => (r.salaryMissing ? <Badge variant="pending" size="sm" dot>Salary missing</Badge> : <span style={mono}>{formatINR(figures(r).gross)}</span>) },
+    { key: 'worked', header: 'Worked', align: 'right', render: (r) => <span style={{ ...mono, color: 'var(--text-body)' }}>{figures(r).worked} d</span> },
     {
       key: 'leave',
       header: 'Leave (used/free)',
       align: 'right',
       render: (r) => {
-        const b = employeeBreakdown(r);
-        return (<span style={mono}><span style={{ color: r.leaveUsed > b.freeLeaveAllowed ? 'var(--coral-600)' : 'var(--text-body)' }}>{r.leaveUsed}</span><span style={{ color: 'var(--text-subtle)' }}> / {b.freeLeaveAllowed}</span></span>);
+        const f = figures(r);
+        return (<span style={mono}><span style={{ color: f.leaveUsed > f.freeLeaveAllowed ? 'var(--coral-600)' : 'var(--text-body)' }}>{f.leaveUsed}</span><span style={{ color: 'var(--text-subtle)' }}> / {f.freeLeaveAllowed}</span></span>);
       },
     },
-    { key: 'ded', header: 'Deduction', align: 'right', render: (r) => { const b = employeeBreakdown(r); return <span style={{ ...mono, fontWeight: b.deductionTotal > 0 ? 700 : 400, color: b.deductionTotal > 0 ? 'var(--coral-600)' : 'var(--text-body)' }}>{b.deductionTotal > 0 ? '−' + formatINR(b.deductionTotal) : '—'}</span>; } },
-    { key: 'tiffin', header: 'Tiffin CTC', align: 'right', render: (r) => { const t = employeeBreakdown(r).tiffinTotal; return <span style={{ ...mono, color: t > 0 ? 'var(--blue-600)' : 'var(--text-subtle)' }}>{t > 0 ? '+' + formatINR(t) : '—'}</span>; } },
-    { key: 'net', header: 'Net payable', align: 'right', render: (r) => (r.salaryMissing ? <span style={{ color: 'var(--text-subtle)' }}>—</span> : <span style={{ ...mono, fontWeight: 700, color: 'var(--text-strong)' }}>{formatINR(employeeBreakdown(r).netSalary)}</span>) },
+    { key: 'ded', header: 'Deduction', align: 'right', render: (r) => { const d = figures(r).deductionTotal; return <span style={{ ...mono, fontWeight: d > 0 ? 700 : 400, color: d > 0 ? 'var(--coral-600)' : 'var(--text-body)' }}>{d > 0 ? '−' + formatINR(d) : '—'}</span>; } },
+    { key: 'tiffin', header: 'Tiffin CTC', align: 'right', render: (r) => { const t = figures(r).tiffinTotal; return <span style={{ ...mono, color: t > 0 ? 'var(--blue-600)' : 'var(--text-subtle)' }}>{t > 0 ? '+' + formatINR(t) : '—'}</span>; } },
+    { key: 'net', header: 'Net payable', align: 'right', render: (r) => (r.salaryMissing ? <span style={{ color: 'var(--text-subtle)' }}>—</span> : <span style={{ ...mono, fontWeight: 700, color: 'var(--text-strong)' }}>{formatINR(figures(r).netSalary)}</span>) },
     { key: 'status', header: 'Status', render: (r) => { const s = SALARY_STATUS_META[salaryStatus(r)]; return <Badge variant={s.variant} dot>{s.label}</Badge>; } },
     { key: 'actions', header: 'Actions', align: 'right', render: (r) => <Actions r={r} /> },
   ];
@@ -123,7 +139,7 @@ export function SalaryPage() {
           minWidth={1060}
           emptyText={active.length === 0 ? 'No employees yet — import employees to begin payroll.' : 'No salaries match this filter.'}
           mobileCard={(r) => {
-            const b = employeeBreakdown(r);
+            const b = figures(r);
             const s = SALARY_STATUS_META[salaryStatus(r)];
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -146,8 +162,8 @@ export function SalaryPage() {
                   </div>
                 )}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 12.5 }}>
-                  <Kv label="Gross" value={r.salaryMissing ? '—' : formatINR(r.salary)} />
-                  <Kv label="Worked" value={`${r.worked} d`} />
+                  <Kv label="Gross" value={r.salaryMissing ? '—' : formatINR(b.gross)} />
+                  <Kv label="Worked" value={`${b.worked} d`} />
                   <Kv label="Deduction" value={b.deductionTotal > 0 ? '−' + formatINR(b.deductionTotal) : '—'} color={b.deductionTotal > 0 ? 'var(--coral-600)' : undefined} />
                   <Kv label="Tiffin CTC" value={b.tiffinTotal > 0 ? '+' + formatINR(b.tiffinTotal) : '—'} color={b.tiffinTotal > 0 ? 'var(--blue-600)' : undefined} />
                 </div>

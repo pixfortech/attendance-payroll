@@ -274,6 +274,35 @@ export interface Session {
 /* ---------- Salary status (derived) ---------- */
 export type SalaryStatus = 'notstarted' | 'requested' | 'pending' | 'approved' | 'paid' | 'hold';
 
+/* ---------- Persisted salary entry (Firestore `salaryEntries`) ----------
+   A frozen snapshot of one employee's payroll for one month, written when the
+   salary is approved / paid / held. The salary table prefers this over a live
+   recalculation when it exists. Status uses the Firestore vocabulary. */
+export type SalaryEntryStatus = 'not_started' | 'request_received' | 'pending' | 'approved' | 'paid' | 'on_hold';
+
+export interface SalaryEntry {
+  id: string;
+  salaryRunId: string;
+  employeeId: string;
+  /** 1-12 */
+  month: number;
+  year: number;
+  grossPayable: number;
+  workedDays: number;
+  leaveUsed: number;
+  freeLeaveUsed: number;
+  deductionTotal: number;
+  advanceAdjustment: number;
+  tiffinCtc: number;
+  netPayable: number;
+  status: SalaryEntryStatus;
+  paymentId?: string;
+  approvedAt?: string;
+  paidAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /* ---------- Notifications ---------- */
 export type NotificationType =
   | 'salary_requested'

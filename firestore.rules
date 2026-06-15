@@ -1,14 +1,49 @@
 rules_version = '2';
 
-// Simple first-stage rules: only the Master Admin UID may read/write Firestore.
-// Replace MASTER_ADMIN_UID with the UID you copied from Firebase Authentication.
-// (Employees/managers do NOT have Firebase Auth users yet — their PIN login is
-//  local/demo only, so they never touch Firestore.)
+// ============================================================
+// Ganguram Payroll — Firestore security rules
+//
+// First-stage rule: only the Master Admin UID may read/write. The catch-all
+// `/{document=**}` below already covers every collection the app uses, both the
+// profile collections and the Phase 2 operational ones:
+//
+//   employees · branches              (profiles)
+//   attendance · salaryRuns · salaryEntries · advances · advanceAdjustments
+//   payments · tiffinEntries · notifications · auditLogs   (operational)
+//
+// Employees/managers do NOT have Firebase Auth users yet — their PIN login is
+// local/demo only, so they never touch Firestore and no PIN is ever stored.
+//
+// Replace MASTER_ADMIN_UID with the UID copied from Firebase Authentication.
+//
+// TODO(role-based access): when employees/managers get backend auth (Firebase
+// custom claims, e.g. { role: 'employee', employeeId, branchId }), replace the
+// single-admin catch-all with per-collection rules. Sketch:
+//
+//   function isAdmin()    { return request.auth != null && request.auth.uid == "MASTER_ADMIN_UID"; }
+//   function isManager()  { return request.auth.token.role == 'manager'; }
+//   function isSelf(eid)  { return request.auth.token.employeeId == eid; }
+//
+//   match /attendance/{id} {
+//     allow read:  if isAdmin() || isManager() || isSelf(resource.data.employeeId);
+//     allow write: if isAdmin() || isManager();      // employees never write directly
+//   }
+//   match /payments/{id}   { allow read: if isAdmin() || isSelf(resource.data.employeeId);
+//                            allow update: if isSelf(resource.data.employeeId)   // confirm/dispute only
+//                              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','confirmedAt','disputedAt','updatedAt']); }
+//   match /notifications/{id} { allow read, update: if isAdmin()
+//                              || request.auth.token.employeeId == resource.data.recipientEmployeeId; }
+//   match /salaryEntries/{id} / advances / tiffinEntries / auditLogs: admin-only write,
+//                              read scoped to self for the employee portal.
+// ============================================================
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isMasterAdmin() {
+      return request.auth != null && request.auth.uid == "MASTER_ADMIN_UID";
+    }
+
     match /{document=**} {
-      allow read, write: if request.auth != null
-        && request.auth.uid == "MASTER_ADMIN_UID";
+      allow read, write: if isMasterAdmin();
     }
   }
 }

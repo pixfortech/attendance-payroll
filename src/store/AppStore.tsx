@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import type {
   Advance,
   AppNotification,
@@ -19,6 +19,8 @@ import type {
   ProofMethod,
   QrRotation,
   Role,
+  SalaryEntry,
+  SalaryStatus,
   Session,
   TiffinLabel,
 } from '../types';
@@ -28,9 +30,36 @@ import { CURRENT_MONTH } from '../data/month';
 import { evaluateEligibility } from '../services/eligibility';
 import { allocatePaidLeave } from '../services/leave';
 import { evaluateProof, isAutoApproved } from '../services/attendance';
+import { advanceRemaining } from '../services/advance';
+import { tiffinPerDay } from '../services/tiffin';
+import { employeeBreakdown, isActiveEmployee, salaryStatus } from '../lib/payroll';
 import { useToast } from '../components/ui/Toast';
 import { auth, firebaseConfigured } from '../lib/firebase';
 import { bulkUpsertBranches, bulkUpsertEmployees, deleteBranchDoc, deleteEmployeeDoc, loadBranches, loadEmployees, upsertBranch, upsertEmployee } from '../lib/firestoreRepo';
+import {
+  hydrateAttendance,
+  loadAttendance,
+  loadAuditLogs,
+  loadSalaryEntries,
+  salaryRunId,
+  salaryStatusToDoc,
+  saveAdvance,
+  saveAdvanceAdjustment,
+  saveAttendanceMark,
+  saveAttendanceMarksBulk,
+  saveAuditLog,
+  saveCheckin,
+  saveNotification,
+  savePayment,
+  saveSalaryEntry,
+  saveSalaryRun,
+  saveTiffinEntries,
+  setNotificationRead as setNotificationReadDoc,
+  setNotificationsRead as setNotificationsReadDocs,
+  subscribeNotifications,
+  updatePaymentStatusDoc,
+  type SalaryRunCounts,
+} from '../lib/firestoreOps';
 import { onAuthStateChanged } from 'firebase/auth';
 
 /** Company-wide default tiffin labels (used as defaults + the Tiffin module list). */
@@ -153,6 +182,8 @@ interface AppContextValue {
   session: Session | null;
   auditLog: AuditEntry[];
   notifications: AppNotification[];
+  /** Frozen, Firestore-backed salary snapshots (preferred over live calc when present). */
+  salaryEntries: SalaryEntry[];
 
   getEmployee: (id: string) => Employee | undefined;
   getBranch: (id: string) => Branch | undefined;
@@ -284,8 +315,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = usePersistentState<Session | null>('session', null);
   const [auditLog, setAuditLog] = usePersistentState<AuditEntry[]>('auditLog', []);
   const [notifications, setNotifications] = usePersistentState<AppNotification[]>('notifications', []);
+  const [salaryEntries, setSalaryEntries] = usePersistentState<SalaryEntry[]>('salaryEntries', []);
   const [notices] = useState<Notice[]>(NOTICES);
   const [firestoreActive, setFirestoreActive] = useState(false);
+  // Keeps the live notification subscription so we can detach it on sign-out.
+  const notifUnsubRef = useRef<null | (() => void)>(null);
 
   // Expire stale login sessions on load (redirects to login via route guards).
   useEffect(() => {
@@ -293,17 +327,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const addNotif = (n: Omit<AppNotification, 'id' | 'read' | 'createdAt'>) =>
-    setNotifications((prev) => [{ ...n, id: uid('ntf'), read: false, createdAt: new Date().toISOString() }, ...prev].slice(0, 200));
-
   // When Firebase is configured and an admin signs in, load branches/employees
-  // from Firestore (Firestore becomes the source of truth; local data is the
-  // fallback). Errors (e.g. blocked by rules) surface a clear toast.
+  // AND the operational collections from Firestore (Firestore becomes the
+  // source of truth; localStorage is only the demo/offline fallback). We never
+  // push the local demo seed up — we only pull down what Firestore already has,
+  // so existing Firestore data is never overwritten. Errors surface a toast.
   useEffect(() => {
     if (!firebaseConfigured || !auth) return;
-    return onAuthStateChanged(auth, async (user) => {
+    const authUnsub = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         setFirestoreActive(false);
+        notifUnsubRef.current?.();
+        notifUnsubRef.current = null;
         return;
       }
       try {
@@ -311,11 +346,32 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         if (fbBranches.length) setBranches(fbBranches);
         if (fbEmployees.length) setEmployees(fbEmployees);
         setFirestoreActive(true);
+
+        // ---- Phase 2: hydrate operational collections ----
+        const empForLookup = fbEmployees.length ? fbEmployees : employees;
+        const brForLookup = fbBranches.length ? fbBranches : branches;
+        const [attDocs, fbEntries, fbAudits] = await Promise.all([loadAttendance(), loadSalaryEntries(), loadAuditLogs()]);
+        if (attDocs.length) {
+          const { marks, checkins: hydratedCheckins } = hydrateAttendance(attDocs, empForLookup, brForLookup);
+          if (Object.keys(marks).length) setAttendanceMarks((prev) => ({ ...prev, ...marks }));
+          setCheckins(hydratedCheckins);
+        }
+        if (fbEntries.length) setSalaryEntries(fbEntries);
+        if (fbAudits.length) setAuditLog(fbAudits);
+
+        // ---- Real-time notifications (bell updates live) ----
+        notifUnsubRef.current?.();
+        notifUnsubRef.current = subscribeNotifications((list) => setNotifications(list));
       } catch (err) {
         setFirestoreActive(false);
         toast((err as Error).message, 'error');
       }
     });
+    return () => {
+      authUnsub();
+      notifUnsubRef.current?.();
+      notifUnsubRef.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -327,12 +383,87 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     if (!firestoreActive) return;
     upsertBranch(b).catch((err) => toast((err as Error).message, 'error'));
   };
+  /** Fire-and-forget a Firestore operational write (only when live). */
+  const op = (run: () => Promise<void>) => {
+    if (!firestoreActive) return;
+    run().catch((err) => toast((err as Error).message, 'error'));
+  };
+  /** Resolve an employee's branch document id (for normalised collections). */
+  const branchIdFor = (e: Pick<Employee, 'branch' | 'branchCode'>) =>
+    branches.find((b) => b.code === e.branchCode || b.name === e.branch)?.id ?? e.branchCode ?? '';
 
   const updateEmployee = (employeeId: string, fn: (e: Employee) => Employee) =>
     setEmployees((prev) => prev.map((e) => (e.id === employeeId ? fn(e) : e)));
   const updateBranch = (branchId: string, fn: (b: Branch) => Branch) =>
     setBranches((prev) => prev.map((b) => (b.id === branchId ? fn(b) : b)));
   const randToken = (code: string) => `GNGQR-${code}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+
+  // ---- Audit: one path that updates local state AND persists to Firestore ----
+  const pushAudit = (entry: Omit<AuditEntry, 'id' | 'at' | 'by'>): AuditEntry => {
+    const full: AuditEntry = { ...entry, id: uid('aud'), at: new Date().toISOString(), by: sessionLabel(session) };
+    setAuditLog((prev) => [full, ...prev]);
+    op(() => saveAuditLog(full));
+    return full;
+  };
+
+  // ---- Notifications: local add (+ Firestore doc; onSnapshot reconciles) ----
+  const addNotif = (n: Omit<AppNotification, 'id' | 'read' | 'createdAt'>) => {
+    const full: AppNotification = { ...n, id: uid('ntf'), read: false, createdAt: new Date().toISOString() };
+    setNotifications((prev) => [full, ...prev].slice(0, 200));
+    op(() => saveNotification(full));
+  };
+
+  // ---- Salary entries: build a frozen snapshot + keep the run doc counts ----
+  const runCountsFor = (list: Employee[]): SalaryRunCounts => {
+    const act = list.filter(isActiveEmployee);
+    return {
+      status: 'open',
+      approvedCount: act.filter((e) => e.payrollStatus === 'approved').length,
+      paidCount: act.filter((e) => e.payrollStatus === 'paid').length,
+      pendingCount: act.filter((e) => ['pending', 'requested'].includes(salaryStatus(e))).length,
+    };
+  };
+  const buildSalaryEntry = (emp: Employee, status: SalaryStatus, paymentId?: string): SalaryEntry => {
+    const b = employeeBreakdown(emp);
+    const id = `se-${CURRENT_MONTH.year}-${String(CURRENT_MONTH.month).padStart(2, '0')}-${emp.id}`;
+    const prev = salaryEntries.find((s) => s.id === id);
+    const now = new Date().toISOString();
+    return {
+      id,
+      salaryRunId: salaryRunId(),
+      employeeId: emp.id,
+      month: CURRENT_MONTH.month,
+      year: CURRENT_MONTH.year,
+      grossPayable: emp.salaryMissing ? 0 : emp.salary,
+      workedDays: emp.worked,
+      leaveUsed: emp.leaveUsed,
+      freeLeaveUsed: b.freeLeaveUsed,
+      deductionTotal: b.deductionTotal,
+      advanceAdjustment: b.advanceAdjustment,
+      tiffinCtc: b.tiffinTotal,
+      netPayable: b.netSalary,
+      status: salaryStatusToDoc(status),
+      paymentId: paymentId ?? prev?.paymentId,
+      approvedAt: status === 'approved' || status === 'paid' ? prev?.approvedAt ?? now : prev?.approvedAt,
+      paidAt: status === 'paid' ? now : prev?.paidAt,
+      createdAt: prev?.createdAt ?? now,
+      updatedAt: now,
+    };
+  };
+  /** Upsert a salary entry into local state + Firestore, and refresh run counts. */
+  const commitSalaryEntry = (emp: Employee, status: SalaryStatus, nextList: Employee[], paymentId?: string) => {
+    const se = buildSalaryEntry(emp, status, paymentId);
+    setSalaryEntries((prev) => {
+      const i = prev.findIndex((x) => x.id === se.id);
+      if (i < 0) return [se, ...prev];
+      const n = [...prev];
+      n[i] = se;
+      return n;
+    });
+    op(() => saveSalaryEntry(se));
+    op(() => saveSalaryRun(runCountsFor(nextList)));
+    return se;
+  };
 
   const value = useMemo<AppContextValue>(
     () => ({
@@ -346,6 +477,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       session,
       auditLog,
       notifications,
+      salaryEntries,
       getEmployee: (id) => employees.find((e) => e.id === id),
       getBranch: (id) => branches.find((b) => b.id === id),
 
@@ -353,9 +485,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       logout: () => setSession(null),
 
       notify: addNotif,
-      markNotificationRead: (id) => setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n))),
-      markAllNotificationsRead: (recipient) =>
-        setNotifications((prev) => prev.map((n) => ((recipient.role && n.recipient.role === recipient.role) || (recipient.employeeId && n.recipient.employeeId === recipient.employeeId) ? { ...n, read: true } : n))),
+      markNotificationRead: (id) => {
+        setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+        op(() => setNotificationReadDoc(id, true));
+      },
+      markAllNotificationsRead: (recipient) => {
+        const match = (n: AppNotification) => (recipient.role && n.recipient.role === recipient.role) || (recipient.employeeId && n.recipient.employeeId === recipient.employeeId);
+        const ids = notifications.filter((n) => !n.read && match(n)).map((n) => n.id);
+        setNotifications((prev) => prev.map((n) => (match(n) ? { ...n, read: true } : n)));
+        op(() => setNotificationsReadDocs(ids));
+      },
 
       requestSalary: (employeeId) => {
         const emp = employees.find((e) => e.id === employeeId);
@@ -370,7 +509,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         updateEmployee(employeeId, (e) => ({ ...e, archived }));
         if (emp) {
           persistEmployee({ ...emp, archived });
-          setAuditLog((prev) => [{ id: uid('aud'), at: new Date().toISOString(), by: sessionLabel(session), entity: 'Employee', target: `${emp.name} (${emp.id})`, field: 'Archived', oldValue: String(!!emp.archived), newValue: String(archived), reason: archived ? 'Archived' : 'Restored' }, ...prev]);
+          pushAudit({ entity: 'Employee', target: `${emp.name} (${emp.id})`, field: 'Archived', oldValue: String(!!emp.archived), newValue: String(archived), reason: archived ? 'Archived' : 'Restored' });
         }
         toast(archived ? 'Employee archived' : 'Employee restored');
       },
@@ -378,7 +517,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         const emp = employees.find((e) => e.id === employeeId);
         setEmployees((prev) => prev.filter((e) => e.id !== employeeId));
         if (firestoreActive) deleteEmployeeDoc(employeeId).catch((err) => toast((err as Error).message, 'error'));
-        if (emp) setAuditLog((prev) => [{ id: uid('aud'), at: new Date().toISOString(), by: sessionLabel(session), entity: 'Employee', target: `${emp.name} (${emp.id})`, field: 'Deleted', oldValue: 'exists', newValue: 'deleted', reason: 'Permanent delete' }, ...prev]);
+        if (emp) pushAudit({ entity: 'Employee', target: `${emp.name} (${emp.id})`, field: 'Deleted', oldValue: 'exists', newValue: 'deleted', reason: 'Permanent delete' });
         toast('Employee deleted', 'info');
       },
       archiveBranch: (branchId, archived) => {
@@ -386,7 +525,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         updateBranch(branchId, (b) => ({ ...b, archived }));
         if (br) {
           persistBranch({ ...br, archived });
-          setAuditLog((prev) => [{ id: uid('aud'), at: new Date().toISOString(), by: sessionLabel(session), entity: 'Branch', target: `${br.name} (${br.code})`, field: 'Archived', oldValue: String(!!br.archived), newValue: String(archived), reason: archived ? 'Archived' : 'Restored' }, ...prev]);
+          pushAudit({ entity: 'Branch', target: `${br.name} (${br.code})`, field: 'Archived', oldValue: String(!!br.archived), newValue: String(archived), reason: archived ? 'Archived' : 'Restored' });
         }
         toast(archived ? 'Branch archived' : 'Branch restored');
       },
@@ -394,26 +533,31 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         const br = branches.find((b) => b.id === branchId);
         setBranches((prev) => prev.filter((b) => b.id !== branchId));
         if (firestoreActive) deleteBranchDoc(branchId).catch((err) => toast((err as Error).message, 'error'));
-        if (br) setAuditLog((prev) => [{ id: uid('aud'), at: new Date().toISOString(), by: sessionLabel(session), entity: 'Branch', target: `${br.name} (${br.code})`, field: 'Deleted', oldValue: 'exists', newValue: 'deleted', reason: 'Permanent delete' }, ...prev]);
+        if (br) pushAudit({ entity: 'Branch', target: `${br.name} (${br.code})`, field: 'Deleted', oldValue: 'exists', newValue: 'deleted', reason: 'Permanent delete' });
         toast('Branch deleted', 'info');
       },
 
-      logAudit: (entry) =>
-        setAuditLog((prev) => [{ ...entry, id: uid('aud'), at: new Date().toISOString(), by: sessionLabel(session) }, ...prev]),
+      logAudit: (entry) => pushAudit(entry),
       overrideEmployeeField: (employeeId, field, newValue, reason) => {
         const emp = employees.find((e) => e.id === employeeId);
         if (!emp) return;
         const oldValue = emp[field];
         updateEmployee(employeeId, (e) => ({ ...e, [field]: newValue }));
         persistEmployee({ ...emp, [field]: newValue });
-        setAuditLog((prev) => [
-          { id: uid('aud'), at: new Date().toISOString(), by: sessionLabel(session), entity: 'Employee', target: `${emp.name} (${emp.id})`, field: OVERRIDE_FIELDS[field], oldValue: String(oldValue), newValue: String(newValue), reason },
-          ...prev,
-        ]);
+        pushAudit({ entity: 'Employee', target: `${emp.name} (${emp.id})`, field: OVERRIDE_FIELDS[field], oldValue: String(oldValue), newValue: String(newValue), reason });
         addNotif({ recipient: { role: 'admin' }, type: 'admin_override', title: 'Admin override', message: `${OVERRIDE_FIELDS[field]} for ${emp.name} changed ${String(oldValue)} → ${String(newValue)}.`, relatedId: employeeId });
         toast('Override saved to audit log');
       },
       bulkMark: (employeeIds, dayIndex, mark) => {
+        const idSet = new Set(employeeIds);
+        const updatedById = new Map<string, Employee>();
+        for (const e of employees) {
+          if (!idSet.has(e.id)) continue;
+          const base = attendanceMarks[e.id] ?? Array.from({ length: CURRENT_MONTH.workingDays }, () => 'O' as Mark);
+          const row = [...base];
+          row[dayIndex] = mark;
+          updatedById.set(e.id, { ...e, worked: workedFromMarks(row), daysPresent: countMark(row, 'P'), daysAbsent: countMark(row, 'A'), daysHalf: countMark(row, 'H'), leaveUsed: countMark(row, 'L') + countMark(row, 'A') });
+        }
         setAttendanceMarks((prev) => {
           const next = { ...prev };
           for (const id of employeeIds) {
@@ -424,15 +568,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           }
           return next;
         });
-        setEmployees((emps) =>
-          emps.map((e) => {
-            if (!employeeIds.includes(e.id)) return e;
-            const base = attendanceMarks[e.id] ?? Array.from({ length: CURRENT_MONTH.workingDays }, () => 'O' as Mark);
-            const row = [...base];
-            row[dayIndex] = mark;
-            return { ...e, worked: workedFromMarks(row), daysPresent: countMark(row, 'P'), daysAbsent: countMark(row, 'A'), daysHalf: countMark(row, 'H'), leaveUsed: countMark(row, 'L') + countMark(row, 'A') };
-          }),
-        );
+        setEmployees((emps) => emps.map((e) => updatedById.get(e.id) ?? e));
+        // Firestore: one attendance doc per employee + their refreshed figures.
+        const first = updatedById.get(employeeIds[0]);
+        op(() => saveAttendanceMarksBulk({ employeeIds, branchId: first ? branchIdFor(first) : '', dayIndex, mark, by: sessionLabel(session) }));
+        updatedById.forEach((e) => persistEmployee(e));
         addNotif({ recipient: { role: 'admin' }, type: 'attendance_correction', title: 'Attendance updated', message: `Bulk attendance applied to ${employeeIds.length} employee${employeeIds.length > 1 ? 's' : ''}.` });
         toast(`Marked ${employeeIds.length} employee${employeeIds.length > 1 ? 's' : ''}`);
       },
@@ -546,29 +686,63 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       /* ---- Advances ---- */
       addAdvance: (id, advance) => {
         const emp = employees.find((e) => e.id === id);
-        updateEmployee(id, (e) => ({ ...e, advances: [{ ...advance, id: uid('adv') }, ...e.advances] }));
+        const newAdv: Advance = { ...advance, id: uid('adv') };
+        updateEmployee(id, (e) => ({ ...e, advances: [newAdv, ...e.advances] }));
+        if (emp) {
+          persistEmployee({ ...emp, advances: [newAdv, ...emp.advances] });
+          op(() => saveAdvance(id, newAdv, advanceRemaining([newAdv], CURRENT_MONTH.short)));
+        }
         addNotif({ recipient: { employeeId: id }, type: 'advance_added', title: 'Advance recorded', message: `An advance of ₹${advance.amount.toLocaleString('en-IN')} was recorded for ${emp?.name ?? 'you'}.`, relatedId: id });
         toast('Advance recorded');
       },
       updateAdvance: (id, advanceId, patch) => {
+        const emp = employees.find((e) => e.id === id);
         updateEmployee(id, (e) => ({ ...e, advances: e.advances.map((a) => (a.id === advanceId ? { ...a, ...patch } : a)) }));
+        if (emp) {
+          const advances = emp.advances.map((a) => (a.id === advanceId ? { ...a, ...patch } : a));
+          const adv = advances.find((a) => a.id === advanceId);
+          persistEmployee({ ...emp, advances });
+          if (adv) op(() => saveAdvance(id, adv, advanceRemaining([adv], CURRENT_MONTH.short)));
+        }
         toast('Advance updated');
       },
       adjustAdvancesAgainstSalary: (id) => {
+        const emp = employees.find((e) => e.id === id);
         updateEmployee(id, (e) => ({ ...e, advances: e.advances.map((a) => ({ ...a, cleared: true })) }));
+        if (emp) {
+          persistEmployee({ ...emp, advances: emp.advances.map((a) => ({ ...a, cleared: true })) });
+          const seId = `se-${CURRENT_MONTH.year}-${String(CURRENT_MONTH.month).padStart(2, '0')}-${id}`;
+          emp.advances
+            .filter((a) => !a.cleared)
+            .forEach((a) => {
+              const amountAdjusted = advanceRemaining([a], CURRENT_MONTH.short);
+              op(() => saveAdvance(id, { ...a, cleared: true }, 0));
+              op(() => saveAdvanceAdjustment({ id: uid('adj'), advanceId: a.id, employeeId: id, salaryEntryId: seId, amountAdjusted, remainingBalance: 0, adjustedBy: sessionLabel(session) }));
+            });
+        }
         addNotif({ recipient: { employeeId: id }, type: 'advance_adjusted', title: 'Advance adjusted', message: 'Your advance was adjusted against salary.', relatedId: id });
         toast('Advances adjusted against salary');
       },
 
       /* ---- Payments ---- */
       addPayment: (id, payment) => {
-        updateEmployee(id, (e) => ({ ...e, payments: [{ ...payment, id: uid('pay') }, ...e.payments] }));
+        const emp = employees.find((e) => e.id === id);
+        const newPay: Payment = { ...payment, id: uid('pay') };
+        updateEmployee(id, (e) => ({ ...e, payments: [newPay, ...e.payments] }));
+        if (emp) {
+          persistEmployee({ ...emp, payments: [newPay, ...emp.payments] });
+          op(() => savePayment(id, newPay));
+        }
         addNotif({ recipient: { employeeId: id }, type: 'payment_requested', title: 'Confirm payment received', message: `${payment.type} of ₹${payment.amount.toLocaleString('en-IN')} was marked paid. Please confirm receipt.`, relatedId: id });
         toast(`${payment.type} recorded — pending confirmation`);
       },
       updatePaymentStatus: (id, paymentId, status) => {
         const emp = employees.find((e) => e.id === id);
         updateEmployee(id, (e) => ({ ...e, payments: e.payments.map((p) => (p.id === paymentId ? { ...p, status } : p)) }));
+        if (emp) {
+          persistEmployee({ ...emp, payments: emp.payments.map((p) => (p.id === paymentId ? { ...p, status } : p)) });
+          op(() => updatePaymentStatusDoc(paymentId, status));
+        }
         if (status === 'confirmed') addNotif({ recipient: { role: 'admin' }, type: 'payment_confirmed', title: 'Payment confirmed', message: `${emp?.name ?? 'Employee'} confirmed a payment was received.`, relatedId: id });
         if (status === 'disputed') addNotif({ recipient: { role: 'admin' }, type: 'payment_disputed', title: 'Payment disputed', message: `${emp?.name ?? 'Employee'} raised an issue with a payment.`, relatedId: id });
         toast(status === 'confirmed' ? 'Payment confirmed' : status === 'disputed' ? 'Issue raised' : 'Payment updated', status === 'disputed' ? 'info' : 'success');
@@ -576,53 +750,69 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setPayrollStatus: (id, status) => {
         const emp = employees.find((e) => e.id === id);
         updateEmployee(id, (e) => ({ ...e, payrollStatus: status }));
+        if (emp) {
+          const next = { ...emp, payrollStatus: status };
+          const nextList = employees.map((e) => (e.id === id ? next : e));
+          persistEmployee(next);
+          // A salary entry is created/updated on every approve / pay / hold.
+          const paymentId = status === 'paid' ? emp.payments.find((p) => p.type === 'Salary')?.id : undefined;
+          commitSalaryEntry(next, salaryStatus(next), nextList, paymentId);
+        }
         if (status === 'approved') addNotif({ recipient: { employeeId: id }, type: 'salary_approved', title: 'Salary approved', message: `${emp?.name ?? 'Your'} salary has been approved.`, relatedId: id });
         if (status === 'paid') addNotif({ recipient: { employeeId: id }, type: 'salary_paid', title: 'Salary paid', message: `${emp?.name ?? 'Your'} salary has been paid — please confirm receipt.`, relatedId: id });
         if (status === 'hold') addNotif({ recipient: { employeeId: id }, type: 'salary_hold', title: 'Salary on hold', message: `${emp?.name ?? 'Your'} salary was placed on hold.`, relatedId: id });
         toast(`Salary ${status}`);
       },
       approveAllPending: () => {
-        const ids: string[] = [];
-        setEmployees((prev) =>
-          prev.map((e) => {
-            if (e.payrollStatus === 'pending' && (e.worked >= 1 || e.salaryRequested)) {
-              ids.push(e.id);
-              return { ...e, payrollStatus: 'approved' };
-            }
-            return e;
-          }),
-        );
-        ids.forEach((id) => addNotif({ recipient: { employeeId: id }, type: 'salary_approved', title: 'Salary approved', message: 'Your salary has been approved.', relatedId: id }));
-        toast(ids.length ? `${ids.length} salaries approved` : 'No pending salaries to approve');
-        return ids.length;
+        const targets = employees.filter((e) => e.payrollStatus === 'pending' && (e.worked >= 1 || e.salaryRequested));
+        if (targets.length === 0) {
+          toast('No pending salaries to approve');
+          return 0;
+        }
+        const targetIds = new Set(targets.map((e) => e.id));
+        const nextList = employees.map((e) => (targetIds.has(e.id) ? { ...e, payrollStatus: 'approved' as PayrollStatus } : e));
+        setEmployees(nextList);
+        nextList
+          .filter((e) => targetIds.has(e.id))
+          .forEach((e) => {
+            persistEmployee(e);
+            commitSalaryEntry(e, 'approved', nextList);
+            addNotif({ recipient: { employeeId: e.id }, type: 'salary_approved', title: 'Salary approved', message: 'Your salary has been approved.', relatedId: e.id });
+          });
+        toast(`${targets.length} salaries approved`);
+        return targets.length;
       },
 
       /* ---- Leave ---- */
       setLeaveStatus: (id, leaveId, status) => {
         const emp = employees.find((e) => e.id === id);
         updateEmployee(id, (e) => recomputeLeavePaidFlags({ ...e, leaves: e.leaves.map((l) => (l.id === leaveId ? { ...l, status } : l)) }));
+        if (emp) persistEmployee(recomputeLeavePaidFlags({ ...emp, leaves: emp.leaves.map((l) => (l.id === leaveId ? { ...l, status } : l)) }));
         addNotif({ recipient: { employeeId: id }, type: status === 'approved' ? 'leave_approved' : 'leave_rejected', title: status === 'approved' ? 'Leave approved' : 'Leave rejected', message: `${emp?.name ? emp.name + "'s" : 'Your'} leave request was ${status}.`, relatedId: id });
         toast(status === 'approved' ? 'Leave approved' : 'Leave rejected', status === 'approved' ? 'success' : 'info');
       },
       addLeaveRequest: (id, leave) => {
-        updateEmployee(id, (e) => recomputeLeavePaidFlags({ ...e, leaves: [...e.leaves, { ...leave, id: uid('leave'), paid: false }] }));
+        const emp = employees.find((e) => e.id === id);
+        const newLeave = { ...leave, id: uid('leave'), paid: false };
+        updateEmployee(id, (e) => recomputeLeavePaidFlags({ ...e, leaves: [...e.leaves, newLeave] }));
+        if (emp) persistEmployee(recomputeLeavePaidFlags({ ...emp, leaves: [...emp.leaves, newLeave] }));
         toast('Leave requested');
       },
 
       /* ---- Attendance ---- */
       setAttendanceMark: (employeeId, dayIndex, mark) => {
+        const emp = employees.find((e) => e.id === employeeId);
         const base = attendanceMarks[employeeId] ?? Array.from({ length: CURRENT_MONTH.workingDays }, () => 'O' as Mark);
         const row = [...base];
         row[dayIndex] = mark;
         setAttendanceMarks((prev) => ({ ...prev, [employeeId]: row }));
         // keep the employee's worked / leave figures in sync with the grid
-        setEmployees((emps) =>
-          emps.map((e) =>
-            e.id === employeeId
-              ? { ...e, worked: workedFromMarks(row), daysPresent: countMark(row, 'P'), daysAbsent: countMark(row, 'A'), daysHalf: countMark(row, 'H'), leaveUsed: countMark(row, 'L') + countMark(row, 'A') }
-              : e,
-          ),
-        );
+        const next = emp ? { ...emp, worked: workedFromMarks(row), daysPresent: countMark(row, 'P'), daysAbsent: countMark(row, 'A'), daysHalf: countMark(row, 'H'), leaveUsed: countMark(row, 'L') + countMark(row, 'A') } : undefined;
+        setEmployees((emps) => emps.map((e) => (e.id === employeeId && next ? next : e)));
+        if (next) {
+          persistEmployee(next);
+          op(() => saveAttendanceMark({ employeeId, branchId: branchIdFor(next), dayIndex, mark, by: sessionLabel(session) }));
+        }
       },
 
       addCheckin: (input) => {
@@ -631,6 +821,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         const approved = branch ? isAutoApproved(branch, input.factors) : false;
         const record: AttendanceRecord = { id: uid('chk'), date: '14 Mar 2026', strength, approved, ...input };
         setCheckins((prev) => [record, ...prev]);
+        op(() => saveCheckin(record, branch?.id ?? ''));
         return { strength, approved };
       },
       approveCheckin: (id) => {
@@ -642,7 +833,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             return { ...c, factors, strength: evaluateProof(factors), approved: true };
           }),
         );
-        if (chk) addNotif({ recipient: { employeeId: chk.employeeId }, type: 'attendance_approved', title: 'Attendance approved', message: `Your ${chk.date} check-in was approved.`, relatedId: chk.employeeId });
+        if (chk) {
+          const factors = { ...chk.factors, managerApproved: true };
+          const updated: AttendanceRecord = { ...chk, factors, strength: evaluateProof(factors), approved: true };
+          op(() => saveCheckin(updated, branches.find((b) => b.name === chk.branch)?.id ?? ''));
+          addNotif({ recipient: { employeeId: chk.employeeId }, type: 'attendance_approved', title: 'Attendance approved', message: `Your ${chk.date} check-in was approved.`, relatedId: chk.employeeId });
+        }
         toast('Check-in approved');
       },
 
@@ -691,22 +887,21 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         toast('Tiffin label removed', 'info');
       },
       markTiffinDay: () => {
-        let n = 0;
-        setEmployees((prev) =>
-          prev.map((e) => {
-            if (e.status === 'active') {
-              n++;
-              return { ...e, tiffinDays: e.tiffinDays + 1 };
-            }
-            return e;
-          }),
-        );
-        toast(n ? `Tiffin marked for ${n} staff today` : 'No active staff');
-        return n;
+        const activeList = employees.filter((e) => e.status === 'active');
+        if (activeList.length === 0) {
+          toast('No active staff');
+          return 0;
+        }
+        const updatedById = new Map(activeList.map((e) => [e.id, { ...e, tiffinDays: e.tiffinDays + 1 }]));
+        setEmployees((prev) => prev.map((e) => updatedById.get(e.id) ?? e));
+        updatedById.forEach((e) => persistEmployee(e));
+        op(() => saveTiffinEntries(activeList.map((e) => ({ employeeId: e.id, branchId: branchIdFor(e), label: 'Tiffin', amount: tiffinPerDay(e.tiffin), givenBy: sessionLabel(session) }))));
+        toast(`Tiffin marked for ${activeList.length} staff today`);
+        return activeList.length;
       },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [employees, branches, formulaBlocks, notices, checkins, attendanceMarks, tiffinLabels, session, auditLog, notifications, firestoreActive],
+    [employees, branches, formulaBlocks, notices, checkins, attendanceMarks, tiffinLabels, session, auditLog, notifications, salaryEntries, firestoreActive],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
