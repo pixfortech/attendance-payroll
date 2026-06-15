@@ -27,6 +27,9 @@ import { evaluateEligibility } from '../services/eligibility';
 import { allocatePaidLeave } from '../services/leave';
 import { evaluateProof, isAutoApproved } from '../services/attendance';
 import { useToast } from '../components/ui/Toast';
+import { auth, firebaseConfigured } from '../lib/firebase';
+import { bulkUpsertBranches, bulkUpsertEmployees, loadBranches, loadEmployees, upsertBranch, upsertEmployee } from '../lib/firestoreRepo';
+import { onAuthStateChanged } from 'firebase/auth';
 
 /** Company-wide default tiffin labels (used as defaults + the Tiffin module list). */
 const DEFAULT_TIFFIN_LABELS: TiffinLabel[] = [
@@ -50,6 +53,80 @@ export type OverrideField = keyof typeof OVERRIDE_FIELDS;
 
 const DEFAULT_SESSION: Session = { role: 'admin', name: 'Indrajit Pal' };
 
+export interface NewEmployeeInput {
+  name: string;
+  branch: string;
+  role: string;
+  salary: number;
+  basis: Employee['basis'];
+  joined: string;
+  phone?: string;
+  email?: string;
+}
+
+export interface NewBranchInput {
+  name: string;
+  code: string;
+  manager: string;
+  managerPhone?: string;
+  address?: string;
+}
+
+function makeEmployee(input: NewEmployeeInput, branches: Branch[], tiffinLabels: TiffinLabel[]): Employee {
+  const code = branches.find((b) => b.name === input.branch)?.code ?? input.branch.slice(0, 2).toUpperCase();
+  const id = `GNG-${code}-${Math.floor(1000 + Math.random() * 8999)}`;
+  return {
+    id,
+    name: input.name,
+    branch: input.branch,
+    role: input.role,
+    joined: input.joined,
+    isJoiningMonth: true,
+    tenureMonths: 0,
+    salary: input.salary,
+    basis: input.basis,
+    status: 'active',
+    worked: 0,
+    daysPresent: 0,
+    daysAbsent: 0,
+    daysHalf: 0,
+    leaveUsed: 0,
+    phone: input.phone ?? '—',
+    email: input.email ?? '—',
+    login: 'disabled',
+    lastLogin: 'Never',
+    halfTiffin: true,
+    tiffinDays: 0,
+    tiffin: tiffinLabels.map((t) => ({ ...t, id: `${id}-${t.id}` })),
+    overtimeHours: 0,
+    bonusAmount: 0,
+    payrollStatus: 'pending',
+    advances: [],
+    payments: [],
+    leaves: [],
+    documents: [],
+  };
+}
+
+function makeBranch(input: NewBranchInput): Branch {
+  const id = `BR-${input.code || Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+  return {
+    id,
+    name: input.name,
+    code: input.code,
+    address: input.address ?? '—',
+    manager: input.manager,
+    managerPhone: input.managerPhone ?? '—',
+    staffCount: 0,
+    presentToday: 0,
+    payable: 0,
+    status: 'active',
+    defaultBasis: 'fixed30',
+    geofence: { latitude: 22.5726, longitude: 88.3639, radiusMetres: 100, wifiSsid: `Ganguram-${input.code}`, gpsRequired: false, selfieRequired: false, managerApprovalRequired: false },
+    qr: { token: `GNGQR-${input.code}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`, status: 'active', rotation: 'monthly', generatedAt: '14 Mar 2026' },
+  };
+}
+
 interface AppContextValue {
   employees: Employee[];
   branches: Branch[];
@@ -72,8 +149,14 @@ interface AppContextValue {
   /* Bulk attendance */
   bulkMark: (employeeIds: string[], dayIndex: number, mark: Mark) => void;
 
+  /* Firestore / data source */
+  firestoreActive: boolean;
+  importEmployees: (rows: NewEmployeeInput[]) => number;
+  importBranches: (rows: NewBranchInput[]) => number;
+
   /* Employees */
-  addEmployee: (input: { name: string; branch: string; role: string; salary: number; basis: Employee['basis']; joined: string; phone?: string; email?: string }) => void;
+  addEmployee: (input: NewEmployeeInput) => void;
+  addBranch: (input: NewBranchInput) => void;
   updateEmployeeProfile: (id: string, patch: Partial<Employee>) => void;
   setEmployeeStatus: (id: string, status: EmployeeStatus) => void;
   setEmployeeBasis: (id: string, basis: Employee['basis']) => void;
@@ -167,6 +250,39 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = usePersistentState<Session>('session', DEFAULT_SESSION);
   const [auditLog, setAuditLog] = usePersistentState<AuditEntry[]>('auditLog', []);
   const [notices] = useState<Notice[]>(NOTICES);
+  const [firestoreActive, setFirestoreActive] = useState(false);
+
+  // When Firebase is configured and an admin signs in, load branches/employees
+  // from Firestore (Firestore becomes the source of truth; local data is the
+  // fallback). Errors (e.g. blocked by rules) surface a clear toast.
+  useEffect(() => {
+    if (!firebaseConfigured || !auth) return;
+    return onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setFirestoreActive(false);
+        return;
+      }
+      try {
+        const [fbBranches, fbEmployees] = await Promise.all([loadBranches(), loadEmployees()]);
+        if (fbBranches.length) setBranches(fbBranches);
+        if (fbEmployees.length) setEmployees(fbEmployees);
+        setFirestoreActive(true);
+      } catch (err) {
+        setFirestoreActive(false);
+        toast((err as Error).message, 'error');
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const persistEmployee = (e: Employee) => {
+    if (!firestoreActive) return;
+    upsertEmployee(e).catch((err) => toast((err as Error).message, 'error'));
+  };
+  const persistBranch = (b: Branch) => {
+    if (!firestoreActive) return;
+    upsertBranch(b).catch((err) => toast((err as Error).message, 'error'));
+  };
 
   const updateEmployee = (employeeId: string, fn: (e: Employee) => Employee) =>
     setEmployees((prev) => prev.map((e) => (e.id === employeeId ? fn(e) : e)));
@@ -196,6 +312,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         if (!emp) return;
         const oldValue = emp[field];
         updateEmployee(employeeId, (e) => ({ ...e, [field]: newValue }));
+        persistEmployee({ ...emp, [field]: newValue });
         setAuditLog((prev) => [
           { id: uid('aud'), at: new Date().toISOString(), by: `${session.name} (${session.role})`, entity: 'Employee', target: `${emp.name} (${emp.id})`, field: OVERRIDE_FIELDS[field], oldValue: String(oldValue), newValue: String(newValue), reason },
           ...prev,
@@ -225,54 +342,57 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         toast(`Marked ${employeeIds.length} employee${employeeIds.length > 1 ? 's' : ''}`);
       },
 
+      /* ---- Firestore / data source ---- */
+      firestoreActive,
+      importEmployees: (rows) => {
+        const list = rows.filter((r) => r.name?.trim()).map((r) => makeEmployee(r, branches, tiffinLabels));
+        if (list.length === 0) return 0;
+        setEmployees((prev) => [...list, ...prev]);
+        setAttendanceMarks((prev) => {
+          const next = { ...prev };
+          for (const e of list) next[e.id] = Array.from({ length: CURRENT_MONTH.workingDays }, () => 'O' as Mark);
+          return next;
+        });
+        if (firestoreActive) bulkUpsertEmployees(list).catch((err) => toast((err as Error).message, 'error'));
+        toast(`${list.length} employee${list.length > 1 ? 's' : ''} imported`);
+        return list.length;
+      },
+      importBranches: (rows) => {
+        const list = rows.filter((r) => r.name?.trim()).map((r) => makeBranch(r));
+        if (list.length === 0) return 0;
+        setBranches((prev) => [...list, ...prev]);
+        if (firestoreActive) bulkUpsertBranches(list).catch((err) => toast((err as Error).message, 'error'));
+        toast(`${list.length} branch${list.length > 1 ? 'es' : ''} imported`);
+        return list.length;
+      },
+
       /* ---- Employees ---- */
       addEmployee: (input) => {
-        const branch = branches.find((b) => b.name === input.branch);
-        const code = branch?.code ?? 'GN';
-        const id = `GNG-${code}-${Math.floor(1000 + Math.random() * 8999)}`;
-        const emp: Employee = {
-          id,
-          name: input.name,
-          branch: input.branch,
-          role: input.role,
-          joined: input.joined,
-          isJoiningMonth: true,
-          tenureMonths: 0,
-          salary: input.salary,
-          basis: input.basis,
-          status: 'active',
-          worked: 0,
-          daysPresent: 0,
-          daysAbsent: 0,
-          daysHalf: 0,
-          leaveUsed: 0,
-          phone: input.phone ?? '—',
-          email: input.email ?? '—',
-          login: 'disabled',
-          lastLogin: 'Never',
-          halfTiffin: true,
-          tiffinDays: 0,
-          tiffin: tiffinLabels.map((t) => ({ ...t, id: `${id}-${t.id}` })),
-          overtimeHours: 0,
-          bonusAmount: 0,
-          payrollStatus: 'pending',
-          advances: [],
-          payments: [],
-          leaves: [],
-          documents: [],
-        };
+        const emp = makeEmployee(input, branches, tiffinLabels);
         setEmployees((prev) => [emp, ...prev]);
-        setAttendanceMarks((prev) => ({ ...prev, [id]: Array.from({ length: CURRENT_MONTH.workingDays }, () => 'O' as Mark) }));
+        setAttendanceMarks((prev) => ({ ...prev, [emp.id]: Array.from({ length: CURRENT_MONTH.workingDays }, () => 'O' as Mark) }));
+        persistEmployee(emp);
+        toast(`${input.name} added`);
+      },
+
+      addBranch: (input) => {
+        const branch = makeBranch(input);
+        setBranches((prev) => [branch, ...prev]);
+        persistBranch(branch);
         toast(`${input.name} added`);
       },
 
       updateEmployeeProfile: (id, patch) => {
+        const cur = employees.find((e) => e.id === id);
         updateEmployee(id, (e) => ({ ...e, ...patch }));
+        if (cur) persistEmployee({ ...cur, ...patch });
         toast('Employee updated');
       },
 
       setEmployeeStatus: (id, status) => {
+        const cur = employees.find((e) => e.id === id);
         updateEmployee(id, (e) => recomputeLeavePaidFlags({ ...e, status }));
+        if (cur) persistEmployee(recomputeLeavePaidFlags({ ...cur, status }));
         toast(status === 'resigned' ? 'Marked as resigned' : 'Marked as active');
       },
 
@@ -395,11 +515,21 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       /* ---- Branch QR & geofence ---- */
       rotateBranchQr: (branchId) => {
+        const cur = branches.find((b) => b.id === branchId);
         updateBranch(branchId, (b) => ({ ...b, qr: { ...b.qr, token: randToken(b.code), status: 'active', generatedAt: '14 Mar 2026' } }));
+        if (cur) persistBranch({ ...cur, qr: { ...cur.qr, token: randToken(cur.code), status: 'active', generatedAt: '14 Mar 2026' } });
         toast('QR rotated — old code is now invalid');
       },
-      updateBranchQrRotation: (branchId, rotation) => updateBranch(branchId, (b) => ({ ...b, qr: { ...b.qr, rotation } })),
-      updateBranchGeofence: (branchId, patch) => updateBranch(branchId, (b) => ({ ...b, geofence: { ...b.geofence, ...patch } })),
+      updateBranchQrRotation: (branchId, rotation) => {
+        const cur = branches.find((b) => b.id === branchId);
+        updateBranch(branchId, (b) => ({ ...b, qr: { ...b.qr, rotation } }));
+        if (cur) persistBranch({ ...cur, qr: { ...cur.qr, rotation } });
+      },
+      updateBranchGeofence: (branchId, patch) => {
+        const cur = branches.find((b) => b.id === branchId);
+        updateBranch(branchId, (b) => ({ ...b, geofence: { ...b.geofence, ...patch } }));
+        if (cur) persistBranch({ ...cur, geofence: { ...cur.geofence, ...patch } });
+      },
 
       /* ---- Formula blocks ---- */
       saveFormulaBlock: (block) => {
@@ -443,7 +573,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [employees, branches, formulaBlocks, notices, checkins, attendanceMarks, tiffinLabels, session, auditLog],
+    [employees, branches, formulaBlocks, notices, checkins, attendanceMarks, tiffinLabels, session, auditLog, firestoreActive],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

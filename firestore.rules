@@ -1,0 +1,14 @@
+rules_version = '2';
+
+// Simple first-stage rules: only the Master Admin UID may read/write Firestore.
+// Replace MASTER_ADMIN_UID with the UID you copied from Firebase Authentication.
+// (Employees/managers do NOT have Firebase Auth users yet — their PIN login is
+//  local/demo only, so they never touch Firestore.)
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == "MASTER_ADMIN_UID";
+    }
+  }
+}

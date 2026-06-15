@@ -1,7 +1,30 @@
 import { useState } from 'react';
 import { Badge, Card, Icon, Switch } from '../components/ui';
+import { useAuth } from '../auth/AuthProvider';
+import { useAppStore } from '../store/AppStore';
 import { FIXED_POLICY_DAYS } from '../services/salary';
 import { FREE_LEAVE_PER_MONTH, MIN_TENURE_MONTHS, MIN_WORKED_DAYS } from '../services/eligibility';
+
+function DataSourceCard() {
+  const { configured, user, masterAdminUid } = useAuth();
+  const { firestoreActive } = useAppStore();
+  const status = !configured ? 'demo' : firestoreActive ? 'firestore' : 'fallback';
+  const meta = {
+    demo: { variant: 'pending' as const, label: 'Demo · localStorage', icon: 'info' as const, note: 'Firebase not configured. Add VITE_FIREBASE_* env vars to enable secure admin login and Firestore.' },
+    firestore: { variant: 'confirmed' as const, label: 'Firestore connected', icon: 'shield' as const, note: 'Branches & employees read/write to Firestore. localStorage is used only as a fallback.' },
+    fallback: { variant: 'disputed' as const, label: 'Firestore unavailable', icon: 'alert' as const, note: 'Signed in, but Firestore is blocked or unreachable — using local data. Check the Master Admin UID in your rules.' },
+  }[status];
+  return (
+    <Card title="Data &amp; sync" subtitle="Where branch & employee data lives">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <span style={{ fontSize: 13, color: 'var(--text-body)' }}>Status</span>
+        <Badge variant={meta.variant} icon={meta.icon} dot>{meta.label}</Badge>
+      </div>
+      {configured && user && <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', wordBreak: 'break-all', marginBottom: 8 }}>UID: {user.uid}{masterAdminUid && user.uid === masterAdminUid ? ' · Master Admin' : ''}</div>}
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>{meta.note}</div>
+    </Card>
+  );
+}
 
 function PolicyRow({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -47,6 +70,7 @@ export function SettingsPage() {
       </Card>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <DataSourceCard />
         <Card title="Tiffin / food allowance" subtitle="Company-paid CTC defaults">
           <Switch checked={halfTiffin} onChange={setHalfTiffin} label="Half-day tiffin eligible by default" description="Pay 50% allowance on half-day attendance" />
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface-inset)', borderRadius: 'var(--radius-sm)', padding: '9px 11px', marginTop: 14 }}>

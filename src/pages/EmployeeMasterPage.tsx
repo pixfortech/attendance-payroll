@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Avatar, Badge, Button, Card, Icon, ResponsiveTable, Select, type Column } from '../components/ui';
 import { EmployeeFormModal } from '../components/payroll/EmployeeFormModal';
+import { ImportModal } from '../components/payroll/ImportModal';
 import { useAppStore } from '../store/AppStore';
 import { employeeBreakdown } from '../lib/payroll';
 import { downloadCsv } from '../lib/download';
@@ -17,6 +18,7 @@ export function EmployeeMasterPage() {
   const [branch, setBranch] = useState('');
   const [query, setQuery] = useState('');
   const [addOpen, setAddOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const rows = employees.filter((e) => {
     const matchBranch = !branch || e.branch === branch;
@@ -69,6 +71,7 @@ export function EmployeeMasterPage() {
         <div style={{ flex: '1 1 160px', minWidth: 0 }}>
           <Select value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="All branches" options={['', ...BRANCH_NAMES]} />
         </div>
+        <Button variant="secondary" iconLeft={<Icon name="upload" size={16} />} onClick={() => setImportOpen(true)}>Import</Button>
         <Button variant="secondary" iconLeft={<Icon name="download" size={16} />} onClick={exportCsv}>Export</Button>
         <Button variant="primary" iconLeft={<Icon name="plus" size={17} />} onClick={() => setAddOpen(true)}>Add employee</Button>
       </div>
@@ -109,6 +112,7 @@ export function EmployeeMasterPage() {
       </Card>
 
       {addOpen && <EmployeeFormModal onClose={() => setAddOpen(false)} />}
+      {importOpen && <ImportModal kind="employees" onClose={() => setImportOpen(false)} />}
     </div>
   );
 }

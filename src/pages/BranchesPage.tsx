@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { QRCodeCanvas } from 'qrcode.react';
-import { Badge, Button, Card, Icon, IconButton, ProgressBar, StatCard, useToast } from '../components/ui';
+import { Badge, Button, Card, Icon, IconButton, ProgressBar, StatCard } from '../components/ui';
 import { BranchQrModal, QR_STATUS_META, qrPayload } from '../components/payroll/BranchQrModal';
+import { BranchFormModal } from '../components/payroll/BranchFormModal';
+import { ImportModal } from '../components/payroll/ImportModal';
 import { useAppStore } from '../store/AppStore';
 import { formatINR0 } from '../services';
 import type { Branch } from '../types';
@@ -11,9 +13,10 @@ const BASIS_LABEL = { fixed30: 'Fixed 30-day', calendar: 'Calendar-day' } as con
 
 export function BranchesPage() {
   const navigate = useNavigate();
-  const toast = useToast();
   const { branches, employees } = useAppStore();
   const [qrBranch, setQrBranch] = useState<Branch | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const totalStaff = branches.reduce((s, b) => s + b.staffCount, 0);
   const totalPayable = branches.reduce((s, b) => s + b.payable, 0);
 
@@ -25,8 +28,8 @@ export function BranchesPage() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ flex: 1 }} />
         <Button variant="secondary" iconLeft={<Icon name="qr" size={16} />} onClick={() => window.open('/kiosk', '_blank')}>Open kiosk</Button>
-        {/* TODO(backend): branch creation form persisting to the backend. */}
-        <Button variant="primary" iconLeft={<Icon name="plus" size={17} />} onClick={() => toast('Branch creation will be enabled with backend setup', 'info')}>Add branch</Button>
+        <Button variant="secondary" iconLeft={<Icon name="upload" size={16} />} onClick={() => setImportOpen(true)}>Import</Button>
+        <Button variant="primary" iconLeft={<Icon name="plus" size={17} />} onClick={() => setAddOpen(true)}>Add branch</Button>
       </div>
 
       <div className="gx-grid gx-grid-stats3">
@@ -99,6 +102,8 @@ export function BranchesPage() {
       </div>
 
       {liveQrBranch && <BranchQrModal branch={liveQrBranch} onClose={() => setQrBranch(null)} />}
+      {addOpen && <BranchFormModal onClose={() => setAddOpen(false)} />}
+      {importOpen && <ImportModal kind="branches" onClose={() => setImportOpen(false)} />}
     </div>
   );
 }

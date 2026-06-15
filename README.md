@@ -295,6 +295,59 @@ The app ships with **sample seed data** for Ganguram branches and employees, so 
 
 ---
 
+## Firebase (Admin auth &amp; Firestore)
+
+The **Admin Portal** is secured by **Firebase Authentication (email/password)**. The Employee and Manager portals keep their **local/demo PIN login** for now — no Firebase users are created for them, and **no PIN is ever stored in Firestore**.
+
+When the Firebase env vars are absent, the app runs in **demo mode** (local seed data + `localStorage`), so it works out of the box. Firestore is used as the source of truth for **branches** and **employees** once configured; `localStorage` is the fallback if Firestore is unavailable.
+
+### 1. Configure the web app
+
+Copy `.env.example` → `.env` and fill in your Firebase web config (Project settings → General → SDK setup). The web config is **public client config**, not a secret:
+
+```bash
+cp .env.example .env
+# then edit .env:
+VITE_FIREBASE_API_KEY=…
+VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your-project-id
+VITE_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+VITE_FIREBASE_MESSAGING_SENDER_ID=…
+VITE_FIREBASE_APP_ID=…
+VITE_MASTER_ADMIN_UID=<the UID of your Master Admin user>
+```
+
+### 2. Create the Master Admin
+
+In **Firebase console → Authentication → Users**, add a user with **Email/Password** (Sign-in method must be enabled). Copy its **UID**.
+
+### 3. Firestore security rules
+
+Keep it simple for now — only the Master Admin UID may read/write. Paste this into **Firestore → Rules** (also in [`firestore.rules`](./firestore.rules)), replacing `MASTER_ADMIN_UID`:
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == "MASTER_ADMIN_UID";
+    }
+  }
+}
+```
+
+### 4. Use it
+
+- Visit the app → you're routed to **`/admin-login`** (when Firebase is configured) → sign in with the Master Admin email/password → Admin Portal.
+- **Add/edit employees and branches** write through to Firestore (`employees` and `branches` collections, keyed by id). **Import CSV/XLSX** (Employee Master → Import, Branch Management → Import) bulk-writes too.
+- If Firestore access is blocked by rules or unreachable, a clear error toast is shown and the app falls back to local data. **Settings → Data &amp; sync** shows the live status and your UID.
+- Managers/Employees sign in from **`/login`** (role + demo PIN) — unchanged.
+
+> **Not a secret:** the Firebase web API key is safe to ship in the client; access is controlled by the Firestore rules above, not by hiding the key. Real server-side secrets (service accounts) are never placed in this repo.
+
+---
+
 ## Design system
 
 The interface is built from the **Ganguram Payroll Design System**:
@@ -305,5 +358,3 @@ The interface is built from the **Ganguram Payroll Design System**:
 - **Surfaces** — soft radii, 1px hairlines, indigo-tinted layered shadows, calm flat backgrounds and quick, functional motion.
 
 > Fonts load from the Google Fonts CDN and can be swapped for self-hosted `@font-face` rules later. Icons are a self-contained Lucide-style stroke set.
-</content>
-</invoke>

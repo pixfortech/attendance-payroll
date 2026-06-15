@@ -69,6 +69,13 @@ describe('App — smoke & navigation', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Salary' })).toBeTruthy();
   });
 
+  it('admin-login offers demo entry when Firebase is unconfigured', () => {
+    window.history.pushState({}, '', '/admin-login');
+    render(<App />);
+    expect(screen.getByText('Master Admin sign in')).toBeTruthy();
+    expect(screen.getByText('Enter demo admin')).toBeTruthy();
+  });
+
   it('login routes to the manager portal by role', () => {
     window.history.pushState({}, '', '/login');
     render(<App />);

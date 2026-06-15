@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { NAV_GROUPS } from './nav';
 import { Avatar, Icon, IconButton, type IconName } from '../ui';
 import { useAppStore } from '../../store/AppStore';
+import { useAuth } from '../../auth/AuthProvider';
 import logo from '../../assets/ganguram-logo.png';
 
 function NavRow({ to, label, icon, end, badge, onNavigate }: { to: string; label: string; icon: IconName; end?: boolean; badge?: string; onNavigate?: () => void }) {
@@ -58,7 +59,12 @@ function NavRowInner({ label, icon, active, badge }: { label: string; icon: Icon
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const navigate = useNavigate();
   const { employees } = useAppStore();
+  const { configured, signOut } = useAuth();
   const pendingSalaries = employees.filter((e) => e.payrollStatus === 'pending').length;
+  const handleSignOut = async () => {
+    await signOut();
+    navigate(configured ? '/admin-login' : '/login');
+  };
 
   return (
     <>
@@ -103,7 +109,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-strong)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Indrajit Pal</div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Owner · Admin</div>
           </div>
-          <IconButton icon="logout" label="Sign out" size="sm" onClick={() => navigate('/login')} />
+          <IconButton icon="logout" label="Sign out" size="sm" onClick={handleSignOut} />
         </div>
       </div>
     </>
