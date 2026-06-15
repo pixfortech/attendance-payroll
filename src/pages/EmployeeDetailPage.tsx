@@ -143,7 +143,7 @@ function ProfilePanel({ emp }: { emp: Employee }) {
           <KV label="Role" value={emp.role} icon="briefcase" />
           <KV label="Joining date" value={emp.joined} icon="calendar" />
           <KV label="Tenure" value={`${emp.tenureMonths} months`} icon="clock" />
-          <KV label="Monthly salary" value={formatINR0(emp.salary)} mono icon="wallet" />
+          <KV label="Monthly salary" value={emp.salaryMissing ? 'Missing — set before payroll' : formatINR0(emp.salary)} mono icon="wallet" valueColor={emp.salaryMissing ? 'var(--amber-700)' : undefined} />
           <KV label="Salary basis" value={BASIS_LABEL[emp.basis]} icon="calculator" />
           <KV label="Daily salary" value={formatINR(b.daily)} mono icon="rupee" />
           <KV label="Employee ID" value={emp.id} mono icon="user" />

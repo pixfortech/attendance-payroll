@@ -49,7 +49,7 @@ export function EmployeeMasterPage() {
     },
     { key: 'br', header: 'Branch · Role', render: (e) => (<div><div style={{ color: 'var(--text-strong)', fontWeight: 500 }}>{e.branch}</div><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{e.role}</div></div>) },
     { key: 'joined', header: 'Joined', render: (e) => (<div><div style={{ color: 'var(--text-body)' }}>{e.joined}</div><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{e.tenureMonths} months</div></div>) },
-    { key: 'salary', header: 'Salary', render: (e) => <span style={{ ...mono, fontWeight: 600, color: 'var(--text-strong)' }}>{formatINR0(e.salary)}</span> },
+    { key: 'salary', header: 'Salary', render: (e) => (e.salaryMissing ? <Badge variant="pending" size="sm" dot>Salary missing</Badge> : <span style={{ ...mono, fontWeight: 600, color: 'var(--text-strong)' }}>{formatINR0(e.salary)}</span>) },
     { key: 'elig', header: 'Leave eligibility', render: (e) => (employeeBreakdown(e).eligible ? <Badge variant="eligible" dot>Eligible</Badge> : <Badge variant="noteligible" dot>Not eligible</Badge>) },
     { key: 'status', header: 'Status', render: (e) => (e.status === 'active' ? <Badge variant="present" dot>Active</Badge> : <Badge variant="locked" dot>Resigned</Badge>) },
     { key: 'login', header: 'Login', render: (e) => (e.login === 'enabled' ? <Badge variant="approved" icon="unlock" size="sm">Enabled</Badge> : <Badge variant="locked" icon="lock" size="sm">Disabled</Badge>) },
@@ -103,7 +103,7 @@ export function EmployeeMasterPage() {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: 'var(--text-muted)' }}>
                   <span>{e.role} · {e.tenureMonths}m</span>
-                  <span style={{ ...mono, fontWeight: 700, color: 'var(--text-strong)' }}>{formatINR0(e.salary)}</span>
+                  {e.salaryMissing ? <Badge variant="pending" size="sm" dot>Salary missing</Badge> : <span style={{ ...mono, fontWeight: 700, color: 'var(--text-strong)' }}>{formatINR0(e.salary)}</span>}
                 </div>
               </div>
             );

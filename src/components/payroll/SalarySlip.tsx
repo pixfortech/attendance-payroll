@@ -96,9 +96,16 @@ export function SalarySlip({ employee, onClose }: { employee: Employee; onClose:
             </div>
           )}
 
+          {employee.salaryMissing && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', marginTop: 14, background: 'var(--amber-50)', border: '1px solid var(--amber-100)', borderRadius: 'var(--radius-md)' }}>
+              <Icon name="alert" size={15} color="var(--amber-700)" style={{ marginTop: 1 }} />
+              <span style={{ fontSize: 12.5, color: 'var(--amber-700)', fontWeight: 500 }}>Monthly salary missing; update before payroll.</span>
+            </div>
+          )}
+
           <div style={{ marginTop: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>Earnings &amp; deductions</div>
-            <LineItem label="Gross monthly salary" value={formatINR(employee.salary)} />
+            <LineItem label="Gross monthly salary" value={employee.salaryMissing ? '—' : formatINR(employee.salary)} />
             <LineItem label="Worked days" sub={`${employee.worked} of ${CURRENT_MONTH.workingDays} · daily ${formatINR(b.daily)}`} value={`${employee.worked} d`} />
             <LineItem label="Paid leave" sub={`${employee.leaveUsed} used · ${b.freeLeaveAllowed} free / month`} value={`${employee.leaveUsed} / ${b.freeLeaveAllowed}`} />
             <LineItem

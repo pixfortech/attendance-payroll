@@ -25,11 +25,22 @@ function clean<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
 
+/** Persist a blank salary as null (numeric otherwise). */
+function employeeDoc(e: Employee): Record<string, unknown> {
+  return { ...clean(e), salary: e.salaryMissing ? null : e.salary };
+}
+
+/** Coerce a Firestore employee doc back into the app model. */
+function fromEmployeeDoc(data: Record<string, unknown>): Employee {
+  const salary = data.salary as number | null | undefined;
+  return { ...(data as unknown as Employee), salary: salary ?? 0, salaryMissing: salary == null || !!data.salaryMissing };
+}
+
 export async function loadEmployees(): Promise<Employee[]> {
   if (!db) return [];
   try {
     const snap = await getDocs(collection(db, 'employees'));
-    return snap.docs.map((d) => d.data() as Employee);
+    return snap.docs.map((d) => fromEmployeeDoc(d.data()));
   } catch (err) {
     throw normalise(err);
   }
@@ -48,7 +59,7 @@ export async function loadBranches(): Promise<Branch[]> {
 export async function upsertEmployee(employee: Employee): Promise<void> {
   if (!db) return;
   try {
-    await setDoc(doc(db, 'employees', employee.id), clean(employee));
+    await setDoc(doc(db, 'employees', employee.id), employeeDoc(employee));
   } catch (err) {
     throw normalise(err);
   }
@@ -67,7 +78,7 @@ export async function bulkUpsertEmployees(employees: Employee[]): Promise<void> 
   if (!db || employees.length === 0) return;
   try {
     const batch = writeBatch(db);
-    for (const e of employees) batch.set(doc(db, 'employees', e.id), clean(e));
+    for (const e of employees) batch.set(doc(db, 'employees', e.id), employeeDoc(e));
     await batch.commit();
   } catch (err) {
     throw normalise(err);

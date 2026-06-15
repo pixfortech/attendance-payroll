@@ -108,12 +108,16 @@ export interface Employee {
   id: string;
   name: string;
   branch: string;
+  /** Stable branch code this employee maps to (from import). */
+  branchCode?: string;
   role: string;
   joined: string;
   /** Whether the running month is this employee's joining month. */
   isJoiningMonth: boolean;
   tenureMonths: number;
   salary: number;
+  /** True when monthly salary is blank/null and must be set before payroll. */
+  salaryMissing?: boolean;
   basis: SalaryBasis;
   status: EmployeeStatus;
 

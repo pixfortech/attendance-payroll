@@ -344,6 +344,25 @@ service cloud.firestore {
 - If Firestore access is blocked by rules or unreachable, a clear error toast is shown and the app falls back to local data. **Settings → Data &amp; sync** shows the live status and your UID.
 - Managers/Employees sign in from **`/login`** (role + demo PIN) — unchanged.
 
+### 5. CSV / XLSX import (branches & employees)
+
+Import is **preview-first** with validation, then merge-by-code (no duplicates).
+
+- **Order matters: import branches first, then employees.** Employees map to branches by `branchCode`; if a code is unknown, the row is a **blocking error** ("import branches first").
+- **Stable IDs:** branch doc id = `branchCode`, employee doc id = `employeeCode`. Re-importing the same code **updates/merges** the record (employee ledgers/attendance are preserved) instead of creating a duplicate — the preview labels these as *Update*.
+- **Preview shows** total / valid / warning / error counts and a per-row status before you upload. Only valid + warning rows are uploaded; error rows are skipped.
+- **Salary** is stored numeric; a blank salary is kept null and flagged *"Monthly salary missing; update before payroll."* (warning, still importable). **Phone** is kept as a string. **No PIN is imported or stored.**
+
+Expected columns (a template is downloadable from each Import dialog):
+
+```
+branches:  branchCode, branchName, addressLine1, addressLine2, landmark, city,
+           state, pincode, phone, latitude, longitude, radiusMeters, active
+employees: employeeCode, name, mobile, branchCode, branchName, role, designation,
+           gender, monthlySalary, joiningDate, status, salaryBasis, latitude,
+           longitude, notes
+```
+
 > **Not a secret:** the Firebase web API key is safe to ship in the client; access is controlled by the Firestore rules above, not by hiding the key. Real server-side secrets (service accounts) are never placed in this repo.
 
 ---

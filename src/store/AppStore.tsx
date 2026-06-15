@@ -108,6 +108,16 @@ function makeEmployee(input: NewEmployeeInput, branches: Branch[], tiffinLabels:
   };
 }
 
+/** Recompute branch staff counts + manager from the (imported) employee list. */
+function recountBranches(branches: Branch[], employees: Employee[]): Branch[] {
+  return branches.map((b) => {
+    const staff = employees.filter((e) => e.branchCode === b.code || e.branch === b.name);
+    if (staff.length === 0) return b;
+    const mgr = staff.find((e) => /manager/i.test(e.role) && !/vice/i.test(e.role)) ?? staff.find((e) => /manager/i.test(e.role));
+    return { ...b, staffCount: staff.length, manager: mgr ? mgr.name : b.manager, managerPhone: mgr && mgr.phone !== '—' ? mgr.phone : b.managerPhone };
+  });
+}
+
 function makeBranch(input: NewBranchInput): Branch {
   const id = `BR-${input.code || Math.random().toString(36).slice(2, 5).toUpperCase()}`;
   return {
@@ -151,8 +161,9 @@ interface AppContextValue {
 
   /* Firestore / data source */
   firestoreActive: boolean;
-  importEmployees: (rows: NewEmployeeInput[]) => number;
-  importBranches: (rows: NewBranchInput[]) => number;
+  /** Merge-by-id import (branches first, then employees). */
+  upsertEmployees: (employees: Employee[]) => void;
+  upsertBranches: (branches: Branch[]) => void;
 
   /* Employees */
   addEmployee: (input: NewEmployeeInput) => void;
@@ -344,26 +355,48 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       /* ---- Firestore / data source ---- */
       firestoreActive,
-      importEmployees: (rows) => {
-        const list = rows.filter((r) => r.name?.trim()).map((r) => makeEmployee(r, branches, tiffinLabels));
-        if (list.length === 0) return 0;
-        setEmployees((prev) => [...list, ...prev]);
-        setAttendanceMarks((prev) => {
-          const next = { ...prev };
-          for (const e of list) next[e.id] = Array.from({ length: CURRENT_MONTH.workingDays }, () => 'O' as Mark);
-          return next;
-        });
-        if (firestoreActive) bulkUpsertEmployees(list).catch((err) => toast((err as Error).message, 'error'));
-        toast(`${list.length} employee${list.length > 1 ? 's' : ''} imported`);
-        return list.length;
-      },
-      importBranches: (rows) => {
-        const list = rows.filter((r) => r.name?.trim()).map((r) => makeBranch(r));
-        if (list.length === 0) return 0;
-        setBranches((prev) => [...list, ...prev]);
-        if (firestoreActive) bulkUpsertBranches(list).catch((err) => toast((err as Error).message, 'error'));
+      upsertBranches: (list) => {
+        if (list.length === 0) return;
+        const byId = new Map(branches.map((b) => [b.id, b]));
+        const docs: Branch[] = [];
+        for (const inc of list) {
+          const ex = byId.get(inc.id);
+          const next: Branch = ex
+            ? { ...ex, name: inc.name, code: inc.code, address: inc.address, managerPhone: inc.managerPhone, status: inc.status, geofence: { ...ex.geofence, latitude: inc.geofence.latitude, longitude: inc.geofence.longitude, radiusMetres: inc.geofence.radiusMetres } }
+            : inc;
+          byId.set(inc.id, next);
+          docs.push(next);
+        }
+        setBranches([...byId.values()]);
+        if (firestoreActive) bulkUpsertBranches(docs).catch((err) => toast((err as Error).message, 'error'));
         toast(`${list.length} branch${list.length > 1 ? 'es' : ''} imported`);
-        return list.length;
+      },
+      upsertEmployees: (list) => {
+        if (list.length === 0) return;
+        const byId = new Map(employees.map((e) => [e.id, e]));
+        const docs: Employee[] = [];
+        const newIds: string[] = [];
+        for (const inc of list) {
+          const ex = byId.get(inc.id);
+          const next: Employee = ex
+            ? { ...ex, name: inc.name, branch: inc.branch, branchCode: inc.branchCode, role: inc.role, joined: inc.joined, salary: inc.salary, salaryMissing: inc.salaryMissing, basis: inc.basis, status: inc.status, phone: inc.phone }
+            : inc;
+          if (!ex) newIds.push(inc.id);
+          byId.set(inc.id, next);
+          docs.push(next);
+        }
+        const merged = [...byId.values()];
+        setEmployees(merged);
+        if (newIds.length) {
+          setAttendanceMarks((prev) => {
+            const n = { ...prev };
+            for (const id of newIds) if (!n[id]) n[id] = Array.from({ length: CURRENT_MONTH.workingDays }, () => 'O' as Mark);
+            return n;
+          });
+        }
+        setBranches((prev) => recountBranches(prev, merged));
+        if (firestoreActive) bulkUpsertEmployees(docs).catch((err) => toast((err as Error).message, 'error'));
+        toast(`${list.length} employee${list.length > 1 ? 's' : ''} imported`);
       },
 
       /* ---- Employees ---- */
