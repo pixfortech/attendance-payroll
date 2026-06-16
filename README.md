@@ -425,6 +425,26 @@ The PIN login flow honours these states: `loginEnabled`, not `disabled`, not `lo
 
 A reusable **`BackButton`** (touch-friendly, mobile-first) gives every detail/sub-view a clear way back, so no page is a dead end (also survives refresh / direct URL via a route fallback): **Employee Detail → Employee Master**, **Employee portal sub-sections → Portal home**, **Manager portal sub-sections → Manager home**. The browser Back button keeps working alongside it.
 
+### 9. Attendance capture (Phase 3B)
+
+Daily attendance can be captured several ways; the rules live in one tested place (`src/lib/attendanceCapture.ts`) and everything writes through to Firestore with a localStorage fallback:
+
+| Mode | Notes |
+| --- | --- |
+| **Manual** (Attendance grid) | Admin sees **All branches** (default), manager only their branch; tap a cell to cycle Present / Absent / Half / Leave / Off — worked days recalculate immediately via the shared calculator. |
+| **Bulk** | Mark several employees for a branch/date at once (manager limited to their branch), with a confirm step + audit entry. |
+| **QR** | Branch QR carries the branch code. A scan for **another branch** is never silently approved — it goes to the review queue ("QR belongs to another branch"). |
+| **GPS / geofence** | Each branch has `latitude/longitude/radius`. Inside the radius → **verified**; outside → **needs_review** (with distance); GPS **denied/unavailable** → **needs_review**, never a hard fail. |
+| **Kiosk** | Branch-specific shared-device mode; find yourself by code / mobile / name, confirm, and it stores `branchId/employeeId/source: kiosk/verificationStatus`. No salary/private data is shown. |
+
+**Offline pending-sync** (`src/lib/attendanceSync.ts`): if the device is offline or a Firestore write fails, the action is queued locally ("Saved offline. Will sync when online.") and retried when back online. Writes use **deterministic ids** (`employeeId_date_source`) so retries never double-count. The Attendance page shows an **Online/Offline + pending-count panel** with **Sync now**; failed items keep a retry count + last error.
+
+**Review queue** (Attendance → *Review*): captures anything uncertain (QR mismatch, outside geofence, GPS missing, kiosk uncertain, manager-approval branches). Admin reviews all; a manager reviews **only their branch**. **Approve** marks the employee present (recalculating worked days), **Half day** marks a half, **Reject** keeps it off — all with audit logs + notifications.
+
+**Proof capture** is a **typed placeholder** only (`proofStatus: not_required / uploaded / missing / needs_review`, optional selfie/device/location fields). **No face recognition, biometrics or external biometric devices** are implemented in this phase, and **no Firebase Storage** upload is wired yet.
+
+> **Future plan:** selfie/photo proof via Firebase Storage, optional device biometrics, and external biometric-device integration — all behind the secure backend (custom token + role-based rules). Current Master-Admin Firestore security is unchanged.
+
 ---
 
 ## Design system

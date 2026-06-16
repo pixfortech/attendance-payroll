@@ -255,6 +255,62 @@ export interface AttendanceRecord {
   strength: ProofStrength;
   /** false → held in the Pending Manager Approval queue. */
   approved: boolean;
+
+  /* ---- Phase 3B: capture mode, verification, GPS + proof ---- */
+  /** How attendance was captured. */
+  source?: AttendanceSource;
+  employeeCode?: string;
+  branchCode?: string;
+  /** verified · needs_review (goes to the review queue) · rejected. */
+  verificationStatus?: VerificationStatus;
+  /** Why it needs review / was rejected (e.g. "QR belongs to another branch"). */
+  reason?: string;
+  /** GPS fix captured at check-in + distance from the branch. */
+  gps?: { lat: number; lng: number } | null;
+  distanceMetres?: number;
+  /** The mark the submission is requesting (present/half/etc.). */
+  requestedMark?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  /** Future-ready proof capture (no face recognition yet — typed placeholder). */
+  proof?: ProofMeta;
+}
+
+/* ---------- Attendance capture (Phase 3B) ---------- */
+export type AttendanceSource = 'manual' | 'bulk' | 'qr' | 'gps' | 'kiosk' | 'offline_synced';
+export type VerificationStatus = 'verified' | 'needs_review' | 'rejected';
+
+/** Future-ready proof metadata. No selfie/biometric is captured yet. */
+export type ProofStatus = 'not_required' | 'uploaded' | 'missing' | 'needs_review';
+export interface ProofMeta {
+  proofStatus: ProofStatus;
+  selfieProofUrl?: string | null;
+  proofFileName?: string | null;
+  proofUploadedAt?: string | null;
+  deviceInfo?: string | null;
+  locationSnapshot?: { lat: number; lng: number } | null;
+}
+
+/** One queued attendance write held until the device is back online / Firestore
+ *  is reachable. Keyed by a deterministic doc id to avoid double-counting. */
+export interface PendingAttendance {
+  id: string;
+  employeeId: string;
+  employeeCode: string;
+  branchId: string;
+  branchCode: string;
+  date: string;
+  status?: string;
+  attendanceType: AttendanceSource;
+  source: AttendanceSource;
+  timestamp: string;
+  createdBy: string;
+  retryCount: number;
+  lastError?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** The check-in record to persist on sync (when source is qr/gps/kiosk). */
+  record?: AttendanceRecord;
 }
 
 /* ---------- Formula builder ---------- */

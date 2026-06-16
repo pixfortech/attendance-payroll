@@ -266,4 +266,19 @@ describe('App — smoke & navigation', () => {
     expect(screen.getByText('Rina Das')).toBeTruthy();
     expect(screen.queryByText('Subir Maity')).toBeNull();
   });
+
+  it('attendance page shows the pending-sync panel and the admin review queue', () => {
+    window.history.pushState({}, '', '/attendance');
+    render(<App />);
+    expect(screen.getByTestId('pending-sync-count')).toBeTruthy(); // offline sync panel
+    fireEvent.click(screen.getByText('Review')); // review tab
+    expect(screen.getByText('Review queue')).toBeTruthy();
+  });
+
+  it('attendance page shows a back button on mobile', () => {
+    setViewport(true);
+    window.history.pushState({}, '', '/attendance');
+    render(<App />);
+    expect(screen.getByRole('button', { name: 'Dashboard' })).toBeTruthy();
+  });
 });

@@ -13,8 +13,10 @@ import type {
   FormulaBlock,
   LeaveRequest,
   Notice,
+  AttendanceSource,
   Payment,
   PayrollStatus,
+  PendingAttendance,
   PortalAccess,
   ProofFactors,
   ProofMethod,
@@ -30,11 +32,13 @@ import { buildAttendanceMarks, figuresFromMarks, type Mark } from '../data/atten
 import { CURRENT_MONTH } from '../data/month';
 import { evaluateEligibility } from '../services/eligibility';
 import { allocatePaidLeave } from '../services/leave';
-import { evaluateProof, isAutoApproved } from '../services/attendance';
+import { evaluateProof } from '../services/attendance';
 import { advanceRemaining } from '../services/advance';
 import { tiffinPerDay } from '../services/tiffin';
 import { employeeBreakdown, isActiveEmployee, salaryStatus } from '../lib/payroll';
 import { loginStatusOf, portalAccessOf } from '../lib/portalAccess';
+import { evaluateCapture } from '../lib/attendanceCapture';
+import { enqueuePending, pendingId, syncPending } from '../lib/attendanceSync';
 import { useToast } from '../components/ui/Toast';
 import { auth, firebaseConfigured } from '../lib/firebase';
 import { bulkUpsertBranches, bulkUpsertEmployees, deleteBranchDoc, deleteEmployeeDoc, loadBranches, loadEmployees, upsertBranch, upsertEmployee } from '../lib/firestoreRepo';
@@ -189,6 +193,9 @@ interface AppContextValue {
   notifications: AppNotification[];
   /** Frozen, Firestore-backed salary snapshots (preferred over live calc when present). */
   salaryEntries: SalaryEntry[];
+  /** Offline attendance pending-sync queue + connectivity. */
+  pendingSync: PendingAttendance[];
+  online: boolean;
 
   getEmployee: (id: string) => Employee | undefined;
   getBranch: (id: string) => Branch | undefined;
@@ -256,8 +263,14 @@ interface AppContextValue {
 
   /* Attendance */
   setAttendanceMark: (employeeId: string, dayIndex: number, mark: Mark) => void;
-  addCheckin: (input: { employeeId: string; employeeName: string; branch: string; method: ProofMethod; factors: ProofFactors; time: string }) => { strength: AttendanceRecord['strength']; approved: boolean };
+  addCheckin: (input: { employeeId: string; employeeName: string; branch: string; method: ProofMethod; factors: ProofFactors; time: string; source?: AttendanceSource; gps?: { lat: number; lng: number } | null; gpsDenied?: boolean; scannedBranchCode?: string | null; requestedMark?: string }) => { strength: AttendanceRecord['strength']; approved: boolean; verificationStatus: AttendanceRecord['verificationStatus'] };
   approveCheckin: (id: string) => void;
+  rejectCheckin: (id: string, reason?: string) => void;
+  reviewCheckinHalf: (id: string) => void;
+  /** Flush the offline attendance queue (idempotent writes). */
+  syncPendingAttendance: () => Promise<void>;
+  /** Admin-only: drop a permanently-failed pending item. */
+  clearFailedSync: (id: string) => void;
 
   /* Branch QR & geofence */
   rotateBranchQr: (branchId: string) => void;
@@ -323,10 +336,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [auditLog, setAuditLog] = usePersistentState<AuditEntry[]>('auditLog', []);
   const [notifications, setNotifications] = usePersistentState<AppNotification[]>('notifications', []);
   const [salaryEntries, setSalaryEntries] = usePersistentState<SalaryEntry[]>('salaryEntries', []);
+  const [pendingSync, setPendingSync] = usePersistentState<PendingAttendance[]>('pendingSync', []);
+  const [online, setOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [notices] = useState<Notice[]>(NOTICES);
   const [firestoreActive, setFirestoreActive] = useState(false);
   // Keeps the live notification subscription so we can detach it on sign-out.
   const notifUnsubRef = useRef<null | (() => void)>(null);
+  // Always-fresh view of the queue for the connectivity listener.
+  const pendingSyncRef = useRef<PendingAttendance[]>(pendingSync);
+  pendingSyncRef.current = pendingSync;
 
   // Expire stale login sessions on load (redirects to login via route guards).
   // A flag lets the login screen show a "session expired" message.
@@ -433,6 +451,60 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     op(() => saveNotification(full));
   };
 
+  // ---- Attendance marking (shared by grid, bulk and review actions) ----
+  const markDay = (employeeId: string, dayIndex: number, mark: Mark) => {
+    const emp = employees.find((e) => e.id === employeeId);
+    const base = attendanceMarks[employeeId] ?? Array.from({ length: CURRENT_MONTH.workingDays }, () => 'O' as Mark);
+    const row = [...base];
+    row[dayIndex] = mark;
+    setAttendanceMarks((prev) => ({ ...prev, [employeeId]: row }));
+    if (emp) {
+      const next = { ...emp, ...figuresFromMarks(row) };
+      setEmployees((emps) => emps.map((e) => (e.id === employeeId ? next : e)));
+      persistEmployee(next);
+      op(() => saveAttendanceMark({ employeeId, branchId: branchIdFor(next), dayIndex, mark, by: sessionLabel(session) }));
+    }
+  };
+  /** Working-day column for "today", clamped into the running month's grid. */
+  const todayWorkingIndex = () => Math.min(CURRENT_MONTH.workingDays - 1, Math.max(0, new Date().getDate() - 1));
+
+  // ---- Offline pending-sync runner (idempotent check-in writes) ----
+  const runSync = async (): Promise<void> => {
+    const queue = pendingSyncRef.current;
+    if (queue.length === 0) {
+      toast('Nothing to sync');
+      return;
+    }
+    const outcome = await syncPending(queue, async (item) => {
+      if (item.record) await saveCheckin(item.record, item.branchId);
+    });
+    setPendingSync(outcome.queue);
+    if (outcome.synced > 0) {
+      toast(`Synced ${outcome.synced} attendance item${outcome.synced > 1 ? 's' : ''}`);
+      addNotif({ recipient: { role: 'admin' }, type: 'attendance_correction', title: 'Offline items synced', message: `${outcome.synced} offline attendance item${outcome.synced > 1 ? 's' : ''} synced to Firestore.` });
+    }
+    if (outcome.failed > 0) {
+      toast(`${outcome.failed} item(s) failed to sync`, 'error');
+      addNotif({ recipient: { role: 'admin' }, type: 'attendance_correction', title: 'Attendance sync failed', message: `${outcome.failed} offline item(s) could not sync — will retry.` });
+    }
+  };
+
+  // Track connectivity; auto-flush the queue when we come back online.
+  useEffect(() => {
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
+  useEffect(() => {
+    if (online && pendingSyncRef.current.length > 0) void runSync();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online]);
+
   // ---- Salary entries: build a frozen snapshot + keep the run doc counts ----
   const runCountsFor = (list: Employee[]): SalaryRunCounts => {
     const act = list.filter(isActiveEmployee);
@@ -498,6 +570,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       auditLog,
       notifications,
       salaryEntries,
+      pendingSync,
+      online,
       getEmployee: (id) => employees.find((e) => e.id === id),
       getBranch: (id) => branches.find((b) => b.id === id),
 
@@ -856,46 +930,95 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       },
 
       /* ---- Attendance ---- */
-      setAttendanceMark: (employeeId, dayIndex, mark) => {
-        const emp = employees.find((e) => e.id === employeeId);
-        const base = attendanceMarks[employeeId] ?? Array.from({ length: CURRENT_MONTH.workingDays }, () => 'O' as Mark);
-        const row = [...base];
-        row[dayIndex] = mark;
-        setAttendanceMarks((prev) => ({ ...prev, [employeeId]: row }));
-        // keep the employee's worked / leave figures in sync with the grid
-        const next = emp ? { ...emp, ...figuresFromMarks(row) } : undefined;
-        setEmployees((emps) => emps.map((e) => (e.id === employeeId && next ? next : e)));
-        if (next) {
-          persistEmployee(next);
-          op(() => saveAttendanceMark({ employeeId, branchId: branchIdFor(next), dayIndex, mark, by: sessionLabel(session) }));
-        }
-      },
+      setAttendanceMark: (employeeId, dayIndex, mark) => markDay(employeeId, dayIndex, mark),
 
       addCheckin: (input) => {
         const branch = branches.find((b) => b.name === input.branch);
+        const source: AttendanceSource = input.source ?? (input.method as AttendanceSource) ?? 'kiosk';
+        const capture = evaluateCapture({ source, branch, employeeBranchCode: branch?.code, scannedBranchCode: input.scannedBranchCode, gps: input.gps, gpsDenied: input.gpsDenied });
         const strength = evaluateProof(input.factors);
-        const approved = branch ? isAutoApproved(branch, input.factors) : false;
-        const record: AttendanceRecord = { id: uid('chk'), date: '14 Mar 2026', strength, approved, ...input };
-        setCheckins((prev) => [record, ...prev]);
-        op(() => saveCheckin(record, branch?.id ?? ''));
-        return { strength, approved };
+        const verificationStatus = capture.verificationStatus;
+        const approved = verificationStatus === 'verified';
+        const iso = new Date().toISOString().slice(0, 10);
+        const record: AttendanceRecord = {
+          id: `chk-${input.employeeId}-${iso}`, // deterministic → no duplicate per day
+          employeeId: input.employeeId,
+          employeeName: input.employeeName,
+          employeeCode: input.employeeId,
+          branch: input.branch,
+          branchCode: branch?.code,
+          date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+          time: input.time,
+          method: input.method,
+          factors: input.factors,
+          strength,
+          approved,
+          source,
+          verificationStatus,
+          reason: capture.reason,
+          gps: input.gps ?? null,
+          distanceMetres: capture.distanceMetres,
+          requestedMark: input.requestedMark ?? 'present',
+          proof: { proofStatus: input.factors.selfieCaptured || input.gps ? 'uploaded' : 'not_required', locationSnapshot: input.gps ?? null },
+        };
+        setCheckins((prev) => [record, ...prev.filter((c) => c.id !== record.id)]);
+        const branchId = branch?.id ?? '';
+        const now = new Date().toISOString();
+        const makePending = (lastError: string | null): PendingAttendance => ({ id: pendingId(input.employeeId, iso, source), employeeId: input.employeeId, employeeCode: input.employeeId, branchId, branchCode: branch?.code ?? '', date: iso, status: record.requestedMark, attendanceType: source, source, timestamp: input.time, createdBy: sessionLabel(session), retryCount: 0, lastError, createdAt: now, updatedAt: now, record });
+        if (!online) {
+          setPendingSync((q) => enqueuePending(q, makePending(null)));
+          toast('Saved offline. Will sync when online.', 'info');
+        } else if (firestoreActive) {
+          saveCheckin(record, branchId).catch((err) => {
+            setPendingSync((q) => enqueuePending(q, makePending((err as Error).message)));
+            toast('Saved offline. Will sync when online.', 'info');
+          });
+        }
+        addNotif({ recipient: { employeeId: input.employeeId }, type: 'attendance_correction', title: 'Attendance submitted', message: `Your ${source.toUpperCase()} attendance was submitted (${verificationStatus.replace('_', ' ')}).`, relatedId: input.employeeId });
+        if (verificationStatus === 'needs_review') {
+          addNotif({ recipient: { role: 'manager' }, type: 'attendance_correction', title: 'Attendance needs review', message: `${input.employeeName}'s ${source.toUpperCase()} check-in needs review${capture.reason ? ` — ${capture.reason}` : ''}.`, relatedId: input.employeeId });
+          addNotif({ recipient: { role: 'admin' }, type: 'attendance_correction', title: 'Attendance needs review', message: `${input.employeeName}'s ${source.toUpperCase()} check-in needs review.`, relatedId: input.employeeId });
+        }
+        return { strength, approved, verificationStatus };
       },
       approveCheckin: (id) => {
         const chk = checkins.find((c) => c.id === id);
-        setCheckins((prev) =>
-          prev.map((c) => {
-            if (c.id !== id) return c;
-            const factors = { ...c.factors, managerApproved: true };
-            return { ...c, factors, strength: evaluateProof(factors), approved: true };
-          }),
-        );
-        if (chk) {
-          const factors = { ...chk.factors, managerApproved: true };
-          const updated: AttendanceRecord = { ...chk, factors, strength: evaluateProof(factors), approved: true };
-          op(() => saveCheckin(updated, branches.find((b) => b.name === chk.branch)?.id ?? ''));
-          addNotif({ recipient: { employeeId: chk.employeeId }, type: 'attendance_approved', title: 'Attendance approved', message: `Your ${chk.date} check-in was approved.`, relatedId: chk.employeeId });
-        }
+        if (!chk) return;
+        const factors = { ...chk.factors, managerApproved: true };
+        const updated: AttendanceRecord = { ...chk, factors, strength: evaluateProof(factors), approved: true, verificationStatus: 'verified', reviewedBy: sessionLabel(session), reviewedAt: new Date().toISOString() };
+        setCheckins((prev) => prev.map((c) => (c.id === id ? updated : c)));
+        op(() => saveCheckin(updated, branches.find((b) => b.name === chk.branch)?.id ?? ''));
+        // Approving marks the employee present for today → recalculates worked days.
+        markDay(chk.employeeId, todayWorkingIndex(), chk.requestedMark === 'half' ? 'H' : 'P');
+        pushAudit({ entity: 'Attendance', target: `${chk.employeeName} (${chk.employeeId})`, field: 'Review approved', oldValue: chk.verificationStatus ?? 'needs_review', newValue: 'verified', reason: chk.reason });
+        addNotif({ recipient: { employeeId: chk.employeeId }, type: 'attendance_approved', title: 'Attendance approved', message: `Your ${chk.date} check-in was approved.`, relatedId: chk.employeeId });
         toast('Check-in approved');
+      },
+      rejectCheckin: (id, reason) => {
+        const chk = checkins.find((c) => c.id === id);
+        if (!chk) return;
+        const updated: AttendanceRecord = { ...chk, approved: false, verificationStatus: 'rejected', reason: reason ?? chk.reason, reviewedBy: sessionLabel(session), reviewedAt: new Date().toISOString() };
+        setCheckins((prev) => prev.map((c) => (c.id === id ? updated : c)));
+        op(() => saveCheckin(updated, branches.find((b) => b.name === chk.branch)?.id ?? ''));
+        pushAudit({ entity: 'Attendance', target: `${chk.employeeName} (${chk.employeeId})`, field: 'Review rejected', oldValue: chk.verificationStatus ?? 'needs_review', newValue: 'rejected', reason });
+        addNotif({ recipient: { employeeId: chk.employeeId }, type: 'attendance_correction', title: 'Attendance rejected', message: `Your ${chk.date} check-in was rejected${reason ? ` — ${reason}` : ''}.`, relatedId: chk.employeeId });
+        toast('Check-in rejected', 'info');
+      },
+      reviewCheckinHalf: (id) => {
+        const chk = checkins.find((c) => c.id === id);
+        if (!chk) return;
+        const updated: AttendanceRecord = { ...chk, approved: true, verificationStatus: 'verified', requestedMark: 'half', reviewedBy: sessionLabel(session), reviewedAt: new Date().toISOString() };
+        setCheckins((prev) => prev.map((c) => (c.id === id ? updated : c)));
+        op(() => saveCheckin(updated, branches.find((b) => b.name === chk.branch)?.id ?? ''));
+        markDay(chk.employeeId, todayWorkingIndex(), 'H');
+        pushAudit({ entity: 'Attendance', target: `${chk.employeeName} (${chk.employeeId})`, field: 'Review → half day', oldValue: chk.verificationStatus ?? 'needs_review', newValue: 'verified (half)', reason: chk.reason });
+        addNotif({ recipient: { employeeId: chk.employeeId }, type: 'attendance_approved', title: 'Attendance set to half day', message: `Your ${chk.date} check-in was approved as a half day.`, relatedId: chk.employeeId });
+        toast('Marked as half day');
+      },
+      syncPendingAttendance: runSync,
+      clearFailedSync: (id) => {
+        setPendingSync((q) => q.filter((i) => i.id !== id));
+        toast('Removed failed item');
       },
 
       /* ---- Branch QR & geofence ---- */
@@ -957,7 +1080,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [employees, branches, formulaBlocks, notices, checkins, attendanceMarks, tiffinLabels, session, auditLog, notifications, salaryEntries, firestoreActive],
+    [employees, branches, formulaBlocks, notices, checkins, attendanceMarks, tiffinLabels, session, auditLog, notifications, salaryEntries, pendingSync, online, firestoreActive],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

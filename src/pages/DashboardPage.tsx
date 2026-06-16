@@ -13,11 +13,15 @@ function EmptyHint({ children }: { children: React.ReactNode }) {
 
 export function DashboardPage() {
   const navigate = useNavigate();
-  const { employees, branches, checkins } = useAppStore();
+  const { employees, branches, checkins, pendingSync } = useAppStore();
 
   const active = employees.filter(isActiveEmployee);
   const activeBranches = branches.filter((b) => !b.archived && b.status === 'active');
   const presentToday = new Set(checkins.map((c) => c.employeeId)).size;
+  const absentToday = Math.max(0, active.length - presentToday);
+  const halfToday = checkins.filter((c) => c.requestedMark === 'half').length;
+  const reviewToday = checkins.filter((c) => (c.verificationStatus ?? (c.approved ? 'verified' : 'needs_review')) === 'needs_review').length;
+  const offlinePending = pendingSync.length;
   const netPayable = round2(active.reduce((s, e) => s + employeeBreakdown(e).netSalary, 0));
   const tiffinCTC = round2(active.reduce((s, e) => s + employeeBreakdown(e).tiffinTotal, 0));
   const pending = active.filter((e) => ['pending', 'requested'].includes(salaryStatus(e)));
@@ -76,6 +80,15 @@ export function DashboardPage() {
         <StatCard label={`Tiffin (CTC) — ${CURRENT_MONTH.label.split(' ')[0]}`} value={formatNumberIN(tiffinCTC)} prefix="₹" icon="utensils" tone="blue" footnote={tiffinCTC === 0 ? 'No tiffin records yet' : 'paid on top of salary'} onClick={() => navigate('/tiffin')} />
       </div>
 
+      <div onClick={() => navigate('/attendance')} style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center', padding: '12px 16px', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)', cursor: 'pointer' }}>
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Attendance today</span>
+        <MiniStat label="Present" value={presentToday} color="var(--green-600)" />
+        <MiniStat label="Absent" value={absentToday} color="var(--coral-600)" />
+        <MiniStat label="Half day" value={halfToday} color="var(--amber-700)" />
+        <MiniStat label="Pending review" value={reviewToday} color="var(--indigo-600)" />
+        <MiniStat label="Offline pending" value={offlinePending} color="var(--text-body)" />
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 16 }}>
         <Card title="Branch summary" subtitle="Active branches & staff" action={<Button variant="ghost" size="sm" iconRight={<Icon name="chevronRight" size={15} />} onClick={() => navigate('/branches')}>All branches</Button>} bodyStyle={{ padding: 0 }}>
           {activeBranches.length === 0 ? (
@@ -131,6 +144,15 @@ export function DashboardPage() {
         )}
       </Card>
     </div>
+  );
+}
+
+function MiniStat({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6 }}>
+      <span style={{ fontSize: 18, fontWeight: 800, color, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{label}</span>
+    </span>
   );
 }
 

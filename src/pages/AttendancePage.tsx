@@ -1,17 +1,18 @@
 import { useState } from 'react';
-import { Avatar, Badge, Button, Card, Icon, Select, Tabs } from '../components/ui';
+import { Avatar, BackButton, Badge, Button, Card, Icon, Select, Tabs } from '../components/ui';
 import { BulkAttendanceModal } from '../components/payroll/BulkAttendanceModal';
-import { PROOF_META } from '../components/payroll/statusMeta';
 import { useAppStore } from '../store/AppStore';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import { isActiveEmployee } from '../lib/payroll';
 import { branchFilterOptions, branchNameForFilter, employeeInBranch } from '../lib/branches';
-import { PROOF_METHOD_LABEL } from '../services/attendance';
 import { downloadCsv } from '../lib/download';
 import { CURRENT_MONTH } from '../data';
 import { MARK_CYCLE, workedFromMarks, countMark, type Mark } from '../data/attendanceMarks';
-import type { AttendanceRecord } from '../types';
+import type { AttendanceRecord, VerificationStatus } from '../types';
 import type { IconName } from '../components/ui';
+
+/** Verification status of a check-in (derives a sensible value for legacy records). */
+const vStatus = (c: AttendanceRecord): VerificationStatus => c.verificationStatus ?? (c.approved ? 'verified' : 'needs_review');
 
 const MARK: Record<Mark, { bg: string; fg: string; bd: string; label: string }> = {
   P: { bg: 'var(--green-50)', fg: 'var(--green-700)', bd: 'var(--green-100)', label: 'Present' },
@@ -32,7 +33,7 @@ const METHODS: { icon: IconName; name: string; desc: string; status: string; ton
 ];
 
 export function AttendancePage() {
-  const { employees, branches, checkins, attendanceMarks, setAttendanceMark } = useAppStore();
+  const { employees, branches, checkins, attendanceMarks, setAttendanceMark, pendingSync, online, syncPendingAttendance, approveCheckin, rejectCheckin, reviewCheckinHalf } = useAppStore();
   const isMobile = useIsMobile();
   const [view, setView] = useState('grid');
   const [branch, setBranch] = useState(''); // '' = All branches
@@ -43,18 +44,20 @@ export function AttendancePage() {
     .filter((e) => isActiveEmployee(e) && employeeInBranch(e, branch, branches))
     .map((e) => ({ id: e.id, name: e.name, role: e.role, branch: e.branch, days: attendanceMarks[e.id] ?? Array.from({ length: DAYS }, () => 'O' as Mark) }));
 
-  const pendingApproval = checkins.filter((c) => !c.approved).length;
-
+  const reviewCount = checkins.filter((c) => vStatus(c) === 'needs_review').length;
   const cycle = (empId: string, dayIndex: number, current: Mark) => setAttendanceMark(empId, dayIndex, nextMark(current));
+  const reviewActions = { onApprove: approveCheckin, onReject: rejectCheckin, onHalf: reviewCheckinHalf };
 
   const exportGrid = () =>
     downloadCsv(`attendance-${branch || 'all'}-${CURRENT_MONTH.short}.csv`, [
-      ['Employee', 'Role', ...Array.from({ length: DAYS }, (_, i) => String(i + 1)), 'Worked'],
-      ...gridStaff.map((s) => [s.name, s.role, ...s.days, workedFromMarks(s.days)]),
+      ['Employee', 'Role', 'Source', ...Array.from({ length: DAYS }, (_, i) => String(i + 1)), 'Worked'],
+      ...gridStaff.map((s) => [s.name, s.role, 'manual', ...s.days, workedFromMarks(s.days)]),
     ]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {isMobile && <BackButton to="/" label="Dashboard" />}
+      <SyncBar online={online} pending={pendingSync.length} onSync={() => void syncPendingAttendance()} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <Tabs
           variant="pill"
@@ -62,7 +65,7 @@ export function AttendancePage() {
           onChange={setView}
           items={[
             { id: 'grid', label: 'Month grid', icon: 'calendar' },
-            { id: 'proof', label: 'Proof', icon: 'shield', count: pendingApproval || undefined },
+            { id: 'proof', label: 'Review', icon: 'shield', count: reviewCount || undefined },
             { id: 'methods', label: 'Capture', icon: 'qr' },
           ]}
         />
@@ -77,10 +80,25 @@ export function AttendancePage() {
       </div>
 
       {view === 'grid' && (isMobile ? <MonthGridMobile staff={gridStaff} branch={branchName} showBranch={!branch} onCycle={cycle} /> : <MonthGridDesktop staff={gridStaff} branch={branchName} showBranch={!branch} onCycle={cycle} />)}
-      {view === 'proof' && <ProofView checkins={checkins} />}
+      {view === 'proof' && <ProofView checkins={checkins} actions={reviewActions} />}
       {view === 'methods' && <MethodsView branch={branchName} />}
 
       {bulkOpen && <BulkAttendanceModal branchLocked={branch ? branchName : undefined} onClose={() => setBulkOpen(false)} />}
+    </div>
+  );
+}
+
+function SyncBar({ online, pending, onSync }: { online: boolean; pending: number; onSync: () => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 14px', background: 'var(--surface-inset)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: online ? 'var(--green-700)' : 'var(--coral-700)' }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: online ? 'var(--green-500)' : 'var(--coral-500)' }} />
+        {online ? 'Online' : 'Offline'}
+      </span>
+      <span style={{ fontSize: 12.5, color: 'var(--text-subtle)' }}>·</span>
+      <span style={{ fontSize: 12.5, color: 'var(--text-body)' }} data-testid="pending-sync-count">{pending} pending sync</span>
+      <div style={{ flex: 1 }} />
+      <Button variant="secondary" size="sm" iconLeft={<Icon name="refresh" size={14} />} disabled={pending === 0} onClick={onSync}>Sync now</Button>
     </div>
   );
 }
@@ -220,54 +238,82 @@ function Factor({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
-function ProofView({ checkins }: { checkins: AttendanceRecord[] }) {
-  const { approveCheckin } = useAppStore();
-  const pending = checkins.filter((c) => !c.approved);
+const VERIFY_META: Record<NonNullable<AttendanceRecord['verificationStatus']>, { label: string; variant: 'paid' | 'pending' | 'rejected' }> = {
+  verified: { label: 'Verified', variant: 'paid' },
+  needs_review: { label: 'Needs review', variant: 'pending' },
+  rejected: { label: 'Rejected', variant: 'rejected' },
+};
+const PROOF_BADGE: Record<string, { label: string; variant: 'paid' | 'pending' | 'neutral' }> = {
+  uploaded: { label: 'Proof submitted', variant: 'paid' },
+  needs_review: { label: 'Proof needs review', variant: 'pending' },
+  missing: { label: 'Proof missing', variant: 'pending' },
+  not_required: { label: 'Proof not required', variant: 'neutral' },
+};
+
+interface ReviewActions {
+  onApprove: (id: string) => void;
+  onReject: (id: string, reason?: string) => void;
+  onHalf: (id: string) => void;
+}
+
+function ProofView({ checkins, actions }: { checkins: AttendanceRecord[]; actions: ReviewActions }) {
+  const review = checkins.filter((c) => vStatus(c) === 'needs_review');
+  const decided = checkins.filter((c) => vStatus(c) !== 'needs_review');
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {pending.length > 0 && (
-        <Card title="Pending manager approval" subtitle="Weak-proof check-ins held for sign-off" action={<Badge variant="pending">{pending.length}</Badge>}>
+      <Card title="Review queue" subtitle="QR mismatch · outside geofence · GPS missing · kiosk uncertain" action={<Badge variant="pending">{review.length}</Badge>}>
+        {review.length === 0 ? (
+          <div style={{ padding: 14, fontSize: 13, color: 'var(--text-muted)' }}>Nothing to review right now.</div>
+        ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {pending.map((c) => (
-              <CheckinRow key={c.id} c={c} onApprove={() => approveCheckin(c.id)} />
+            {review.map((c) => (
+              <ReviewRow key={c.id} c={c} actions={actions} />
             ))}
           </div>
-        </Card>
-      )}
-      <Card title="Today — check-ins" subtitle="Proof factors captured at check-in">
+        )}
+      </Card>
+      <Card title="Recent check-ins" subtitle="Verified &amp; rejected">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {checkins.map((c) => (
-            <CheckinRow key={c.id} c={c} onApprove={c.approved ? undefined : () => approveCheckin(c.id)} />
-          ))}
+          {decided.length === 0 ? (
+            <div style={{ padding: 8, fontSize: 13, color: 'var(--text-muted)' }}>No check-ins recorded yet.</div>
+          ) : (
+            decided.slice(0, 20).map((c) => <ReviewRow key={c.id} c={c} />)
+          )}
         </div>
       </Card>
     </div>
   );
 }
 
-function CheckinRow({ c, onApprove }: { c: AttendanceRecord; onApprove?: () => void }) {
-  const proof = PROOF_META[c.strength];
+function ReviewRow({ c, actions }: { c: AttendanceRecord; actions?: ReviewActions }) {
+  const status = vStatus(c);
+  const meta = VERIFY_META[status];
+  const proof = c.proof ? PROOF_BADGE[c.proof.proofStatus] : null;
+  const source = (c.source ?? c.method).toUpperCase();
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '13px 14px', background: 'var(--surface-inset)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 11, flexWrap: 'wrap' }}>
-        <Avatar name={c.employeeName} size={36} status="present" />
+        <Avatar name={c.employeeName} size={36} />
         <div style={{ flex: 1, minWidth: 120 }}>
           <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text-strong)' }}>{c.employeeName}</div>
-          <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{c.branch} · {PROOF_METHOD_LABEL[c.method]} · {c.time}</div>
+          <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{c.branch} · {source} · {c.time}</div>
         </div>
-        <Badge variant={proof.variant} dot>{proof.label}</Badge>
+        <Badge variant={meta.variant} dot>{meta.label}</Badge>
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        <Factor ok={c.factors.qrMatched} label="QR" />
-        <Factor ok={c.factors.gpsInsideRadius} label="GPS" />
-        <Factor ok={c.factors.wifiMatched} label="Wi-Fi" />
-        <Factor ok={c.factors.selfieCaptured} label="Selfie" />
-        <Factor ok={c.factors.managerApproved} label="Manager" />
+        {proof && <Badge variant={proof.variant === 'neutral' ? 'neutral' : proof.variant} size="sm">{proof.label}</Badge>}
+        {typeof c.distanceMetres === 'number' && <Factor ok={status === 'verified'} label={`~${c.distanceMetres}m`} />}
       </div>
-      {!c.approved && onApprove && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-          <Badge variant="pending" icon="info">Pending manager approval</Badge>
-          <Button variant="primary" size="sm" iconLeft={<Icon name="check" size={14} />} onClick={onApprove}>Approve</Button>
+      {c.reason && (
+        <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 12, color: 'var(--amber-700)' }}>
+          <Icon name="info" size={13} style={{ marginTop: 1 }} /> {c.reason}
+        </div>
+      )}
+      {actions && status === 'needs_review' && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Button variant="primary" size="sm" iconLeft={<Icon name="check" size={14} />} onClick={() => actions.onApprove(c.id)}>Approve</Button>
+          <Button variant="secondary" size="sm" onClick={() => actions.onHalf(c.id)}>Half day</Button>
+          <Button variant="ghost" size="sm" iconLeft={<Icon name="x" size={14} />} onClick={() => actions.onReject(c.id, 'Rejected by reviewer')}>Reject</Button>
         </div>
       )}
     </div>

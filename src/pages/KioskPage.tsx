@@ -54,7 +54,7 @@ export function KioskPage() {
       selfieCaptured: selfie,
       managerApproved: manager,
     };
-    const res = addCheckin({ employeeId: selected.id, employeeName: selected.name, branch: branchName, method: 'kiosk', factors, time: nowTime() });
+    const res = addCheckin({ employeeId: selected.id, employeeName: selected.name, branch: branchName, method: 'kiosk', source: 'kiosk', factors, time: nowTime(), requestedMark: 'present' });
     setResult(res);
     setStep('done');
   };
