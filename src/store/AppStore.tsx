@@ -325,8 +325,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const notifUnsubRef = useRef<null | (() => void)>(null);
 
   // Expire stale login sessions on load (redirects to login via route guards).
+  // A flag lets the login screen show a "session expired" message.
   useEffect(() => {
-    if (session && session.expiresAt && session.expiresAt < Date.now()) setSession(null);
+    if (session && session.expiresAt && session.expiresAt < Date.now()) {
+      try {
+        sessionStorage.setItem('gng.sessionExpired', '1');
+      } catch {
+        /* ignore storage errors */
+      }
+      setSession(null);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

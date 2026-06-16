@@ -19,6 +19,7 @@ function setViewport(isMobile: boolean) {
 
 beforeEach(() => {
   localStorage.clear(); // isolate persisted store between tests
+  sessionStorage.clear(); // clear the "session expired" flag between tests
   // Seed a logged-in admin session (login-first app); demo mode (no Firebase).
   localStorage.setItem('gng.v1.session', JSON.stringify({ role: 'admin', name: 'Test Admin', expiresAt: Date.now() + 3600000 }));
   window.history.pushState({}, '', '/'); // reset route (jsdom history persists)
@@ -85,13 +86,64 @@ describe('App — smoke & navigation', () => {
     expect(screen.getByText('Enter demo admin')).toBeTruthy();
   });
 
-  it('login routes to the manager portal by role', () => {
+  it('admin login routes to the admin dashboard (demo mode)', () => {
+    localStorage.removeItem('gng.v1.session');
+    window.history.pushState({}, '', '/login');
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: /Sign in/ })); // role defaults to Admin
+    expect(screen.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeTruthy();
+  });
+
+  it('manager PIN login routes to the manager portal scoped to their branch', () => {
+    localStorage.removeItem('gng.v1.session');
     window.history.pushState({}, '', '/login');
     render(<App />);
     fireEvent.click(screen.getByText('Manager')); // role chip
+    fireEvent.change(screen.getByLabelText(/ID or mobile/), { target: { value: 'GNG-BD-0142' } }); // Subir — Beadon Street
+    fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: '246813' } });
     fireEvent.click(screen.getByRole('button', { name: /Sign in/ }));
     expect(screen.getByText('Manager portal')).toBeTruthy();
     expect(screen.getByText('Proof to approve')).toBeTruthy();
+    // Branch-scoped: a Beadon colleague is shown; a Mishti Hub employee is not.
+    expect(screen.getByText('Kartik Sen')).toBeTruthy(); // Beadon Street
+    expect(screen.queryByText('Rina Das')).toBeNull(); // Mishti Hub
+  });
+
+  it('employee PIN login routes to the portal and shows only their own data', () => {
+    localStorage.removeItem('gng.v1.session');
+    window.history.pushState({}, '', '/login');
+    render(<App />);
+    fireEvent.click(screen.getByText('Employee')); // role chip
+    fireEvent.change(screen.getByLabelText(/ID or mobile/), { target: { value: 'GNG-DK-0156' } }); // Pooja Roy
+    fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: '2469' } });
+    fireEvent.click(screen.getByRole('button', { name: /Sign in/ }));
+    expect(screen.getByText('Employee portal')).toBeTruthy();
+    expect(screen.getAllByText('Pooja Roy').length).toBeGreaterThan(0);
+    // Self-only: other employees never appear in the portal.
+    expect(screen.queryByText('Subir Maity')).toBeNull();
+    expect(screen.queryByText('Rina Das')).toBeNull();
+  });
+
+  it('blocks login with an unknown ID and locks after 5 failed attempts', () => {
+    localStorage.removeItem('gng.v1.session');
+    window.history.pushState({}, '', '/login');
+    render(<App />);
+    fireEvent.click(screen.getByText('Employee'));
+    for (let i = 0; i < 5; i++) {
+      fireEvent.change(screen.getByLabelText(/ID or mobile/), { target: { value: 'nobody' } });
+      fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: '2469' } });
+      fireEvent.click(screen.getByRole('button', { name: /Sign in/ }));
+    }
+    expect(screen.getByText(/Account locked/i)).toBeTruthy();
+  });
+
+  it('an expired session redirects to login with a session-expired message', () => {
+    localStorage.setItem('gng.v1.session', JSON.stringify({ role: 'admin', name: 'Test Admin', expiresAt: Date.now() - 1000 }));
+    window.history.pushState({}, '', '/');
+    render(<App />);
+    expect(screen.getByText(/session expired/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Sign in/ })).toBeTruthy();
+    expect(screen.queryByRole('heading', { level: 1, name: 'Dashboard' })).toBeNull();
   });
 
   it('approving a salary row mutates state and re-renders', () => {

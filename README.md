@@ -388,6 +388,26 @@ Notes:
 
 > **Not a secret:** the Firebase web API key is safe to ship in the client; access is controlled by the Firestore rules above, not by hiding the key. Real server-side secrets (service accounts) are never placed in this repo.
 
+### 7. Employee / Manager login (Phase 3A — Step 1)
+
+The app is **login-first** and **role-separated** at `/login`:
+
+- **Admin** → Firebase Auth email/password (Master Admin), routes to the admin suite.
+- **Manager** → Employee/Manager **ID or mobile + PIN**, routes to the branch-scoped manager portal.
+- **Employee** → Employee **ID or mobile + PIN**, routes to the self-service portal.
+
+Routing by role is enforced (`admin → /`, `manager → /manager`, `employee → /portal`); the **manager portal is limited to the manager's assigned branch** and the **employee portal shows only that employee's data**. Sessions expire after a configurable window (default 12h); logout and expiry both return to `/login`, and an expired session shows a "session expired" message.
+
+> ⚠️ **Current limitation (demo PIN):** employee/manager PIN login is **demo/local only** — it matches an existing employee record and checks the PIN **format** (4 or 6 digits, weak PINs blocked, 5-attempt lockout in the UI). **No PIN is stored** anywhere, and **no plain PIN is ever written to Firestore.**
+>
+> **Why no OTP?** SMS OTP is recurring-cost and operationally heavy, so it's intentionally out of scope.
+>
+> **Secure backend (planned, Phase 3B)** — the production flow, with `TODO`s already in `src/lib/pinAuth.ts`:
+> 1. Employee enters mobile/employeeCode + PIN.
+> 2. A Cloud Function verifies the PIN against a **server-side salted hash** (bcrypt/scrypt/argon2) — the plain PIN is never stored or verified on the client.
+> 3. The function issues a **Firebase custom token** carrying role + branch claims.
+> 4. The client signs in with that token; **Firestore rules** then gate access by `request.auth.uid` + custom claims (admin = full · manager = assigned branch · employee = self). Failed-attempt lockout moves server-side.
+
 ---
 
 ## Design system

@@ -15,6 +15,7 @@ export interface InputProps {
   disabled?: boolean;
   required?: boolean;
   mono?: boolean;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
   id?: string;
   style?: CSSProperties;
 }
@@ -34,6 +35,7 @@ export function Input({
   disabled = false,
   required = false,
   mono = false,
+  inputMode,
   id,
   style = {},
 }: InputProps) {
@@ -71,6 +73,7 @@ export function Input({
           id={inputId}
           type={type}
           {...(onChange ? { value, onChange } : { defaultValue: value })}
+          {...(inputMode ? { inputMode } : {})}
           placeholder={placeholder}
           disabled={disabled}
           required={required}
