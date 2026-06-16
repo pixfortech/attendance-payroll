@@ -51,6 +51,12 @@ export function isWeakPin(pin: string): boolean {
   return WEAK_PINS.has(pin);
 }
 
+/** Login-time format check: 4 or 6 digits. (Weak-PIN blocking applies at PIN
+ *  *setup*, not at login — a user must be able to enter their existing PIN.) */
+export function isPinFormat(pin: string): boolean {
+  return /^\d+$/.test(pin) && (pin.length === 4 || pin.length === 6);
+}
+
 /** Reduce a phone/identifier to comparable digits. */
 function digitsOnly(s: string): string {
   return s.replace(/\D/g, '');
@@ -84,7 +90,6 @@ export function verifyPinLogin(employees: Employee[], identifier: string, pin: s
   const employee = findLoginUser(employees, identifier);
   if (!employee) return { ok: false, reason: 'not_found', message: 'No matching employee record. Check your ID / mobile or contact your admin.' };
   if (employee.login !== 'enabled') return { ok: false, reason: 'disabled', message: 'Portal login is not enabled for this account yet. Contact your admin.' };
-  const v = validatePin(pin);
-  if (!v.ok) return { ok: false, reason: 'bad_pin', message: v.message ?? 'Invalid PIN.' };
+  if (!isPinFormat(pin)) return { ok: false, reason: 'bad_pin', message: 'PIN must be 4 or 6 digits.' };
   return { ok: true, employee };
 }

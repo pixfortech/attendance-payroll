@@ -524,9 +524,22 @@ const PORTAL_ITEMS = [
 ];
 
 function LoginPanel({ emp }: { emp: Employee }) {
-  const { setEmployeeLogin } = useAppStore();
+  const { setEmployeeLogin, logAudit } = useAppStore();
   const toast = useToast();
   const login = emp.login === 'enabled';
+
+  // TODO(backend, Phase 3B): PIN hash, "pinSet", failedAttempts and lockedUntil
+  // live in the `appUsers` collection. Reset/unlock will call a secure Cloud
+  // Function; for now these are demo actions that only write an audit entry.
+  const resetPin = () => {
+    logAudit({ entity: 'Employee', target: `${emp.name} (${emp.id})`, field: 'PIN reset', oldValue: 'set', newValue: 'reset', reason: 'Admin reset portal PIN (demo)' });
+    toast(`PIN reset for ${emp.name} — share a new PIN securely`);
+  };
+  const unlock = () => {
+    logAudit({ entity: 'Employee', target: `${emp.name} (${emp.id})`, field: 'Login lock', oldValue: 'locked', newValue: 'unlocked', reason: 'Admin unlocked portal login (demo)' });
+    toast(`${emp.name}'s login unlocked`);
+  };
+
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.3fr', gap: 16, alignItems: 'start' }}>
       <Card title="Employee login portal" subtitle="Self-service access">
@@ -541,9 +554,13 @@ function LoginPanel({ emp }: { emp: Employee }) {
           <Switch checked={login} onChange={(next) => setEmployeeLogin(emp.id, next)} />
         </div>
         <Button variant="secondary" full iconLeft={<Icon name="mail" size={16} />} disabled={!login} onClick={() => toast(`Portal invite sent to ${emp.name}`)}>Send portal invite</Button>
+        <div style={{ display: 'flex', gap: 9, marginTop: 10 }}>
+          <Button variant="secondary" full iconLeft={<Icon name="refresh" size={16} />} disabled={!login} onClick={resetPin}>Reset PIN</Button>
+          <Button variant="ghost" full iconLeft={<Icon name="unlock" size={16} />} onClick={unlock}>Unlock login</Button>
+        </div>
         <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 12, lineHeight: 1.5 }}>
           <Icon name="shield" size={13} color="var(--indigo-500)" style={{ verticalAlign: '-2px', marginRight: 4 }} />
-          Employees can confirm payments and request leave from their own login.
+          Employees sign in with a PIN. Reset/unlock here; no PIN is stored in plain text.
         </div>
       </Card>
       <Card title="What the employee can see" subtitle="Read-only self-service portal">

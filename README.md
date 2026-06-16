@@ -393,8 +393,10 @@ Notes:
 The app is **login-first** and **role-separated** at `/login`:
 
 - **Admin** → Firebase Auth email/password (Master Admin), routes to the admin suite.
-- **Manager** → Employee/Manager **ID or mobile + PIN**, routes to the branch-scoped manager portal.
-- **Employee** → Employee **ID or mobile + PIN**, routes to the self-service portal.
+- **Manager** → Employee/Manager **ID or mobile**, then a **PIN**, routes to the branch-scoped manager portal.
+- **Employee** → Employee **ID or mobile**, then a **PIN**, routes to the self-service portal.
+
+**PIN-first UX:** manager/employee login is a two-step, mobile-first flow — enter ID/mobile → **phone-lock-style PIN keypad** (4/6-digit dots, large number pad, backspace, 6-digit auto-submit, "Forgot PIN? / Reset PIN"). **Password login is a secondary fallback** ("Log in with password instead"); an admin can decide later whether password login stays enabled for staff. To avoid account enumeration, the ID step never reveals whether an account exists — it always advances to PIN entry and fails generically. Admins **Reset PIN / Unlock login** from *Employee Master → Login access* (writes an audit entry).
 
 Routing by role is enforced (`admin → /`, `manager → /manager`, `employee → /portal`); the **manager portal is limited to the manager's assigned branch** and the **employee portal shows only that employee's data**. Sessions expire after a configurable window (default 12h); logout and expiry both return to `/login`, and an expired session shows a "session expired" message.
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findLoginUser, isWeakPin, validatePin, verifyPinLogin } from './pinAuth';
+import { findLoginUser, isPinFormat, isWeakPin, validatePin, verifyPinLogin } from './pinAuth';
 import type { Employee } from '../types';
 
 const emp = (o: Partial<Employee>): Employee => ({ id: 'GNG-BD-0142', name: 'Subir Maity', branch: 'Beadon Street', branchCode: 'BD', role: 'Counter Sales', joined: '', isJoiningMonth: false, tenureMonths: 0, salary: 10000, basis: 'fixed30', status: 'active', worked: 0, daysPresent: 0, daysAbsent: 0, daysHalf: 0, leaveUsed: 0, phone: '+91 98300 11422', email: '', login: 'enabled', lastLogin: '', halfTiffin: true, tiffinDays: 0, tiffin: [], overtimeHours: 0, bonusAmount: 0, payrollStatus: 'pending', advances: [], payments: [], leaves: [], documents: [], ...o } as Employee);
@@ -19,11 +19,17 @@ describe('validatePin', () => {
     expect(validatePin('123').ok).toBe(false);
     expect(validatePin('12345').ok).toBe(false);
   });
-  it('rejects obvious/weak PINs', () => {
+  it('rejects obvious/weak PINs (at setup)', () => {
     for (const p of ['0000', '1111', '1234', '123456', '654321']) {
       expect(validatePin(p).ok).toBe(false);
       expect(isWeakPin(p)).toBe(true);
     }
+  });
+  it('isPinFormat only checks length/digits (used at login)', () => {
+    expect(isPinFormat('1234')).toBe(true); // weak but valid format
+    expect(isPinFormat('123456')).toBe(true);
+    expect(isPinFormat('12')).toBe(false);
+    expect(isPinFormat('12a4')).toBe(false);
   });
 });
 
@@ -45,9 +51,9 @@ describe('verifyPinLogin (demo)', () => {
     expect(verifyPinLogin(employees, 'nobody', '2469')).toMatchObject({ ok: false, reason: 'not_found' });
     expect(verifyPinLogin(employees, 'GNG-MH-0088', '2469')).toMatchObject({ ok: false, reason: 'disabled' });
     expect(verifyPinLogin(employees, 'GNG-BD-0142', '12')).toMatchObject({ ok: false, reason: 'bad_pin' });
-    expect(verifyPinLogin(employees, 'GNG-BD-0142', '1234')).toMatchObject({ ok: false, reason: 'bad_pin' }); // weak
   });
-  it('accepts an enabled record with a valid-format PIN (demo only)', () => {
+  it('accepts an enabled record with a valid-format PIN (demo only; weak allowed at login)', () => {
+    expect(verifyPinLogin(employees, 'GNG-BD-0142', '1234').ok).toBe(true); // weak format is fine at login
     const r = verifyPinLogin(employees, 'GNG-BD-0142', '246813');
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.employee.name).toBe('Subir Maity');

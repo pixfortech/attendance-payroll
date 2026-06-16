@@ -94,14 +94,17 @@ describe('App — smoke & navigation', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeTruthy();
   });
 
+  // Enter a PIN on the phone-lock keypad (6 digits auto-submits).
+  const typePin = (digits: string) => digits.split('').forEach((d) => fireEvent.click(screen.getByRole('button', { name: d })));
+
   it('manager PIN login routes to the manager portal scoped to their branch', () => {
     localStorage.removeItem('gng.v1.session');
     window.history.pushState({}, '', '/login');
     render(<App />);
     fireEvent.click(screen.getByText('Manager')); // role chip
     fireEvent.change(screen.getByLabelText(/ID or mobile/), { target: { value: 'GNG-BD-0142' } }); // Subir — Beadon Street
-    fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: '246813' } });
-    fireEvent.click(screen.getByRole('button', { name: /Sign in/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    typePin('246813'); // 6 digits → auto-submit
     expect(screen.getByText('Manager portal')).toBeTruthy();
     expect(screen.getByText('Proof to approve')).toBeTruthy();
     // Branch-scoped: a Beadon colleague is shown; a Mishti Hub employee is not.
@@ -115,8 +118,8 @@ describe('App — smoke & navigation', () => {
     render(<App />);
     fireEvent.click(screen.getByText('Employee')); // role chip
     fireEvent.change(screen.getByLabelText(/ID or mobile/), { target: { value: 'GNG-DK-0156' } }); // Pooja Roy
-    fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: '2469' } });
-    fireEvent.click(screen.getByRole('button', { name: /Sign in/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    typePin('246813');
     expect(screen.getByText('Employee portal')).toBeTruthy();
     expect(screen.getAllByText('Pooja Roy').length).toBeGreaterThan(0);
     // Self-only: other employees never appear in the portal.
@@ -124,17 +127,15 @@ describe('App — smoke & navigation', () => {
     expect(screen.queryByText('Rina Das')).toBeNull();
   });
 
-  it('blocks login with an unknown ID and locks after 5 failed attempts', () => {
+  it('locks PIN login after 5 failed attempts without revealing if the ID exists', () => {
     localStorage.removeItem('gng.v1.session');
     window.history.pushState({}, '', '/login');
     render(<App />);
     fireEvent.click(screen.getByText('Employee'));
-    for (let i = 0; i < 5; i++) {
-      fireEvent.change(screen.getByLabelText(/ID or mobile/), { target: { value: 'nobody' } });
-      fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: '2469' } });
-      fireEvent.click(screen.getByRole('button', { name: /Sign in/ }));
-    }
-    expect(screen.getByText(/Account locked/i)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/ID or mobile/), { target: { value: 'nobody' } });
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    for (let i = 0; i < 5; i++) typePin('124578'); // each 6-digit entry auto-submits + fails
+    expect(screen.getByText(/Too many failed attempts/i)).toBeTruthy();
   });
 
   it('an expired session redirects to login with a session-expired message', () => {
