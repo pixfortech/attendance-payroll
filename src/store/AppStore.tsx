@@ -15,6 +15,7 @@ import type {
   Notice,
   Payment,
   PayrollStatus,
+  PortalAccess,
   ProofFactors,
   ProofMethod,
   QrRotation,
@@ -33,6 +34,7 @@ import { evaluateProof, isAutoApproved } from '../services/attendance';
 import { advanceRemaining } from '../services/advance';
 import { tiffinPerDay } from '../services/tiffin';
 import { employeeBreakdown, isActiveEmployee, salaryStatus } from '../lib/payroll';
+import { loginStatusOf, portalAccessOf } from '../lib/portalAccess';
 import { useToast } from '../components/ui/Toast';
 import { auth, firebaseConfigured } from '../lib/firebase';
 import { bulkUpsertBranches, bulkUpsertEmployees, deleteBranchDoc, deleteEmployeeDoc, loadBranches, loadEmployees, upsertBranch, upsertEmployee } from '../lib/firestoreRepo';
@@ -229,6 +231,8 @@ interface AppContextValue {
   setEmployeeStatus: (id: string, status: EmployeeStatus) => void;
   setEmployeeBasis: (id: string, basis: Employee['basis']) => void;
   setEmployeeLogin: (id: string, enabled: boolean) => void;
+  /** Admin portal-access controls (enable/disable/role/branch/reset/unlock/…). */
+  updatePortalAccess: (id: string, changes: Partial<PortalAccess>, meta: { action: string; reason?: string; notify?: { title: string; message: string } }) => void;
   setHalfTiffin: (id: string, enabled: boolean) => void;
   addDocument: (id: string, doc: Omit<EmployeeDocument, 'id'>) => void;
   addEmployeeTiffinLabel: (id: string, label: Omit<TiffinLabel, 'id'>) => void;
@@ -497,7 +501,21 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       getEmployee: (id) => employees.find((e) => e.id === id),
       getBranch: (id) => branches.find((b) => b.id === id),
 
-      login: (s) => setSession({ ...s, expiresAt: Date.now() + SESSION_TTL_MS }),
+      login: (s) => {
+        setSession({ ...s, expiresAt: Date.now() + SESSION_TTL_MS });
+        // Record the portal sign-in (last login + clear failed attempts).
+        if (s.employeeId) {
+          const emp = employees.find((e) => e.id === s.employeeId);
+          if (emp) {
+            const a = portalAccessOf(emp);
+            const merged: PortalAccess = { ...a, lastLoginAt: new Date().toISOString(), failedAttempts: 0 };
+            merged.loginStatus = loginStatusOf(merged);
+            const next = { ...emp, portalAccess: merged };
+            updateEmployee(emp.id, () => next);
+            persistEmployee(next);
+          }
+        }
+      },
       logout: () => setSession(null),
 
       notify: addNotif,
@@ -677,6 +695,28 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setEmployeeLogin: (id, enabled) => {
         updateEmployee(id, (e) => ({ ...e, login: enabled ? 'enabled' : 'disabled' }));
         toast(enabled ? 'Portal access enabled' : 'Portal access disabled');
+      },
+
+      updatePortalAccess: (id, changes, meta) => {
+        const emp = employees.find((e) => e.id === id);
+        if (!emp) return;
+        const prev = portalAccessOf(emp);
+        const merged: PortalAccess = { ...prev, ...changes };
+        // Switching to employee role clears any manager branch assignment.
+        if (merged.portalRole === 'employee') {
+          merged.managerBranchId = null;
+          merged.managerBranchCode = null;
+        }
+        merged.loginStatus = loginStatusOf(merged);
+        const next: Employee = { ...emp, portalAccess: merged, login: merged.loginEnabled ? ('enabled' as const) : ('disabled' as const) };
+        updateEmployee(id, () => next);
+        persistEmployee(next);
+        // Audit: include employee code (= id), name, the action, and old → new.
+        const keys = Object.keys(changes) as (keyof PortalAccess)[];
+        const fmt = (a: PortalAccess) => keys.map((k) => `${k}=${String(a[k] ?? '—')}`).join(', ') || meta.action;
+        pushAudit({ entity: 'Employee', target: `${emp.name} (${emp.id})`, field: meta.action, oldValue: fmt(prev), newValue: fmt(merged), reason: meta.reason });
+        if (meta.notify) addNotif({ recipient: { employeeId: id }, type: 'portal_access', title: meta.notify.title, message: meta.notify.message, relatedId: id });
+        toast(meta.action);
       },
 
       setHalfTiffin: (id, enabled) => updateEmployee(id, (e) => ({ ...e, halfTiffin: enabled })),

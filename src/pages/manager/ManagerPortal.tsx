@@ -1,6 +1,6 @@
 import { useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Avatar, Badge, Button, Card, Icon, StatCard, type IconName } from '../../components/ui';
+import { Avatar, BackButton, Badge, Button, Card, Icon, StatCard, type IconName } from '../../components/ui';
 import { BulkAttendanceModal } from '../../components/payroll/BulkAttendanceModal';
 import { NotificationBell } from '../../components/layout/NotificationBell';
 import { PROOF_META } from '../../components/payroll/statusMeta';
@@ -68,6 +68,7 @@ export function ManagerPortal() {
       )}
 
       <main className="gx-scroll" style={{ maxWidth: 1100, margin: '0 auto', padding: isMobile ? '16px 14px 24px' : '20px 24px 40px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {section !== 'overview' && <BackButton label="Manager home" onClick={() => setSection('overview')} />}
         {section === 'overview' && (
           <>
             <div className="gx-grid gx-grid-stats">

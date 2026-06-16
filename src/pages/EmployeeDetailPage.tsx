@@ -2,6 +2,7 @@ import { useState, type CSSProperties } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Avatar,
+  BackButton,
   Badge,
   Button,
   Card,
@@ -27,8 +28,10 @@ import { RecordPaymentModal } from '../components/payroll/RecordPaymentModal';
 import { EmployeeFormModal } from '../components/payroll/EmployeeFormModal';
 import { CONFIRMATION_META } from '../components/payroll/statusMeta';
 import { useAppStore } from '../store/AppStore';
-import type { DocumentKind, TiffinLabel } from '../types';
+import type { DocumentKind, PortalRole, TiffinLabel } from '../types';
 import { employeeBreakdown, employeeOutstandingAdvance, employeeTiffinTotal } from '../lib/payroll';
+import { managerNeedsBranch, portalAccessOf, PORTAL_STATUS_META } from '../lib/portalAccess';
+import { activeBranches } from '../lib/branches';
 import { evaluateEligibility, formatINR, formatINR0, tiffinPerDay } from '../services';
 import { CURRENT_MONTH } from '../data';
 import type { Employee } from '../types';
@@ -96,12 +99,7 @@ export function EmployeeDetailPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      <button
-        onClick={() => navigate('/employees')}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 7, alignSelf: 'flex-start', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', fontFamily: 'var(--font-sans)', padding: 0 }}
-      >
-        <Icon name="chevronLeft" size={16} /> Employee Master
-      </button>
+      <BackButton to="/employees" label="Employee Master" />
 
       <Card padding="0">
         <div style={{ display: 'flex', alignItems: 'center', gap: 18, padding: 22, flexWrap: 'wrap' }}>
@@ -523,52 +521,106 @@ const PORTAL_ITEMS = [
   'Company notices',
 ];
 
-function LoginPanel({ emp }: { emp: Employee }) {
-  const { setEmployeeLogin, logAudit } = useAppStore();
-  const toast = useToast();
-  const login = emp.login === 'enabled';
+function lastLoginLabel(iso: string | null): string {
+  if (!iso) return 'Never';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
 
-  // TODO(backend, Phase 3B): PIN hash, "pinSet", failedAttempts and lockedUntil
-  // live in the `appUsers` collection. Reset/unlock will call a secure Cloud
-  // Function; for now these are demo actions that only write an audit entry.
-  const resetPin = () => {
-    logAudit({ entity: 'Employee', target: `${emp.name} (${emp.id})`, field: 'PIN reset', oldValue: 'set', newValue: 'reset', reason: 'Admin reset portal PIN (demo)' });
-    toast(`PIN reset for ${emp.name} — share a new PIN securely`);
+const warnBox: CSSProperties = { display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, color: 'var(--amber-700)', background: 'var(--amber-50)', border: '1px solid var(--amber-100)', borderRadius: 'var(--radius-sm)', padding: '9px 11px', marginTop: 10 };
+
+function LoginPanel({ emp }: { emp: Employee }) {
+  const { updatePortalAccess, branches } = useAppStore();
+  const toast = useToast();
+  const a = portalAccessOf(emp);
+  const [note, setNote] = useState(a.loginNotes ?? '');
+  const status = PORTAL_STATUS_META[a.loginStatus];
+  const branchOptions = [{ value: '', label: 'Select branch…' }, ...activeBranches(branches).map((b) => ({ value: b.code, label: b.name }))];
+  const needsBranch = managerNeedsBranch(a);
+
+  const setEnabled = (next: boolean) =>
+    updatePortalAccess(emp.id, { loginEnabled: next }, {
+      action: next ? 'Portal login enabled' : 'Portal login disabled',
+      notify: { title: next ? 'Portal access enabled' : 'Portal access disabled', message: next ? 'Your portal login is now enabled.' : 'Your portal access was disabled.' },
+    });
+  const setRole = (role: PortalRole) =>
+    updatePortalAccess(emp.id, { portalRole: role }, { action: 'Portal role changed', notify: { title: 'Portal role updated', message: `Your portal role is now ${role}.` } });
+  const setBranch = (code: string) => {
+    const b = branches.find((x) => x.code === code);
+    updatePortalAccess(emp.id, { managerBranchId: b?.id ?? null, managerBranchCode: b?.code ?? null }, { action: 'Manager branch changed', notify: { title: 'Branch assignment updated', message: `You now manage ${b?.name ?? '—'}.` } });
   };
-  const unlock = () => {
-    logAudit({ entity: 'Employee', target: `${emp.name} (${emp.id})`, field: 'Login lock', oldValue: 'locked', newValue: 'unlocked', reason: 'Admin unlocked portal login (demo)' });
-    toast(`${emp.name}'s login unlocked`);
-  };
+  const resetPin = () =>
+    updatePortalAccess(emp.id, { pinSet: false, failedAttempts: 0, lockedUntil: null }, {
+      action: 'PIN reset requested', reason: 'Admin reset PIN (demo)',
+      notify: { title: 'PIN reset required', message: 'Your PIN was reset. You must set a new PIN on next login.' },
+    });
+  const unlock = () =>
+    updatePortalAccess(emp.id, { failedAttempts: 0, lockedUntil: null }, { action: 'Account unlocked', notify: { title: 'Account unlocked', message: 'Your portal login was unlocked.' } });
+  const clearAttempts = () => updatePortalAccess(emp.id, { failedAttempts: 0 }, { action: 'Failed attempts cleared' });
+  const setFallback = (next: boolean) => updatePortalAccess(emp.id, { passwordFallbackAllowed: next }, { action: next ? 'Password fallback enabled' : 'Password fallback disabled' });
+  const saveNote = () => updatePortalAccess(emp.id, { loginNotes: note.trim() }, { action: 'Login note updated' });
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.3fr', gap: 16, alignItems: 'start' }}>
-      <Card title="Employee login portal" subtitle="Self-service access">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', background: login ? 'var(--green-50)' : 'var(--neutral-100)', border: `1px solid ${login ? 'var(--green-100)' : 'var(--border-subtle)'}`, borderRadius: 'var(--radius-md)', marginBottom: 16 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 16, alignItems: 'start' }}>
+      <Card title="Portal access" subtitle="Admin-managed login for this person">
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+          <Badge variant={status.variant} dot>{status.label}</Badge>
+          <Badge variant={a.portalRole === 'manager' ? 'brand' : 'neutral'} icon={a.portalRole === 'manager' ? 'badgeCheck' : 'user'}>{a.portalRole === 'manager' ? 'Manager access' : 'Employee access'}</Badge>
+          <Badge variant={a.passwordFallbackAllowed ? 'info' : 'locked'} size="sm">{a.passwordFallbackAllowed ? 'Password fallback on' : 'Password fallback off'}</Badge>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', background: a.loginEnabled ? 'var(--green-50)' : 'var(--neutral-100)', border: `1px solid ${a.loginEnabled ? 'var(--green-100)' : 'var(--border-subtle)'}`, borderRadius: 'var(--radius-md)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-            <Icon name={login ? 'unlock' : 'lock'} size={20} color={login ? 'var(--green-600)' : 'var(--text-muted)'} />
+            <Icon name={a.loginEnabled ? 'unlock' : 'lock'} size={20} color={a.loginEnabled ? 'var(--green-600)' : 'var(--text-muted)'} />
             <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-strong)' }}>{login ? 'Access enabled' : 'Access disabled'}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Last login: {emp.lastLogin}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-strong)' }}>{a.loginEnabled ? 'Login enabled' : 'Login disabled'}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Last login: {lastLoginLabel(a.lastLoginAt)}</div>
             </div>
           </div>
-          <Switch checked={login} onChange={(next) => setEmployeeLogin(emp.id, next)} />
+          <Switch checked={a.loginEnabled} onChange={setEnabled} />
         </div>
-        <Button variant="secondary" full iconLeft={<Icon name="mail" size={16} />} disabled={!login} onClick={() => toast(`Portal invite sent to ${emp.name}`)}>Send portal invite</Button>
-        <div style={{ display: 'flex', gap: 9, marginTop: 10 }}>
-          <Button variant="secondary" full iconLeft={<Icon name="refresh" size={16} />} disabled={!login} onClick={resetPin}>Reset PIN</Button>
-          <Button variant="ghost" full iconLeft={<Icon name="unlock" size={16} />} onClick={unlock}>Unlock login</Button>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 14 }}>
+          <Select label="Portal role" value={a.portalRole} onChange={(e) => setRole(e.target.value as PortalRole)} options={[{ value: 'employee', label: 'Employee' }, { value: 'manager', label: 'Manager' }]} />
+          {a.portalRole === 'manager' && <Select label="Manager branch" value={a.managerBranchCode ?? ''} onChange={(e) => setBranch(e.target.value)} options={branchOptions} />}
         </div>
+        {needsBranch && (
+          <div style={warnBox}>
+            <Icon name="alert" size={14} style={{ marginTop: 1 }} /> Manager branch assignment required.
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 9, marginTop: 14, flexWrap: 'wrap' }}>
+          <Button variant="secondary" size="sm" iconLeft={<Icon name="refresh" size={15} />} onClick={resetPin}>Reset PIN</Button>
+          <Button variant="secondary" size="sm" iconLeft={<Icon name="unlock" size={15} />} onClick={unlock}>Unlock</Button>
+          <Button variant="ghost" size="sm" onClick={clearAttempts}>Clear attempts ({a.failedAttempts})</Button>
+          <Button variant="ghost" size="sm" iconLeft={<Icon name="mail" size={15} />} disabled={!a.loginEnabled} onClick={() => toast(`Portal invite sent to ${emp.name}`)}>Invite</Button>
+        </div>
+
+        <div style={{ marginTop: 14 }}>
+          <Switch checked={a.passwordFallbackAllowed} onChange={setFallback} label="Allow password login (fallback)" description="When off, only PIN login is offered to this user." />
+        </div>
+
+        <div style={{ marginTop: 14, display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+          <div style={{ flex: 1 }}>
+            <Input label="Login note (optional)" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Shares branch device" />
+          </div>
+          <Button variant="secondary" onClick={saveNote} disabled={note.trim() === (a.loginNotes ?? '')}>Save</Button>
+        </div>
+
         <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 12, lineHeight: 1.5 }}>
           <Icon name="shield" size={13} color="var(--indigo-500)" style={{ verticalAlign: '-2px', marginRight: 4 }} />
-          Employees sign in with a PIN. Reset/unlock here; no PIN is stored in plain text.
+          {/* TODO(backend): the PIN is verified by a Cloud Function against a salted hash. */}
+          Reset PIN sets the account to “PIN required” for next login. No PIN (plain or hashed) is stored in Firestore yet.
         </div>
       </Card>
+
       <Card title="What the employee can see" subtitle="Read-only self-service portal">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           {PORTAL_ITEMS.map((p) => (
             <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 11px', background: 'var(--surface-inset)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
-              <Icon name="circleCheck" size={15} color={login ? 'var(--green-500)' : 'var(--neutral-400)'} />
-              <span style={{ fontSize: 12.5, color: login ? 'var(--text-body)' : 'var(--text-muted)', fontWeight: 500 }}>{p}</span>
+              <Icon name="circleCheck" size={15} color={a.loginEnabled ? 'var(--green-500)' : 'var(--neutral-400)'} />
+              <span style={{ fontSize: 12.5, color: a.loginEnabled ? 'var(--text-body)' : 'var(--text-muted)', fontWeight: 500 }}>{p}</span>
             </div>
           ))}
         </div>

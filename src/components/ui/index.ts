@@ -2,6 +2,7 @@
 export { Icon, ICON_NAMES, type IconName } from './Icon';
 export { Button, type ButtonProps, type ButtonVariant } from './Button';
 export { IconButton } from './IconButton';
+export { BackButton } from './BackButton';
 export { Input } from './Input';
 export { Select, type SelectOption } from './Select';
 export { Switch } from './Switch';

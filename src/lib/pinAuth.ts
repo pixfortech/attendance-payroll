@@ -21,7 +21,8 @@
      5. Failed attempts / lockouts are enforced server-side (the client counter
         below is a UX placeholder only).
    ============================================================ */
-import type { Employee } from '../types';
+import type { Employee, PortalRole } from '../types';
+import { isAccountLocked, portalAccessOf } from './portalAccess';
 
 /** After this many failed attempts the login is (demo-)locked. */
 export const MAX_PIN_ATTEMPTS = 5;
@@ -79,17 +80,28 @@ export function findLoginUser(employees: Employee[], identifier: string): Employ
   });
 }
 
+export type LoginFailReason = 'not_found' | 'disabled' | 'locked' | 'wrong_portal' | 'pin_required' | 'bad_pin';
 export type LoginOutcome =
   | { ok: true; employee: Employee }
-  | { ok: false; reason: 'not_found' | 'disabled' | 'bad_pin'; message: string };
+  | { ok: false; reason: LoginFailReason; message: string };
 
-/** DEMO verification: match the record + validate PIN format only.
+/** Generic, non-enumerating failure for "no such account". */
+const GENERIC_FAIL = 'Couldn’t sign you in. Check your ID and PIN, or contact your admin.';
+
+/** DEMO verification: match the record, enforce the admin-managed portal-access
+ *  state, and validate PIN format only. The PIN itself is NOT verified (there is
+ *  no stored hash yet).
  *  TODO(backend): replace with a Cloud Function that verifies the PIN hash and
  *  returns a Firebase custom token — never accept a PIN on format alone. */
-export function verifyPinLogin(employees: Employee[], identifier: string, pin: string): LoginOutcome {
+export function verifyPinLogin(employees: Employee[], identifier: string, pin: string, role: PortalRole): LoginOutcome {
   const employee = findLoginUser(employees, identifier);
-  if (!employee) return { ok: false, reason: 'not_found', message: 'No matching employee record. Check your ID / mobile or contact your admin.' };
-  if (employee.login !== 'enabled') return { ok: false, reason: 'disabled', message: 'Portal login is not enabled for this account yet. Contact your admin.' };
-  if (!isPinFormat(pin)) return { ok: false, reason: 'bad_pin', message: 'PIN must be 4 or 6 digits.' };
+  // Do not reveal whether the ID exists.
+  if (!employee) return { ok: false, reason: 'not_found', message: GENERIC_FAIL };
+  const access = portalAccessOf(employee);
+  if (!access.loginEnabled || access.loginStatus === 'disabled') return { ok: false, reason: 'disabled', message: 'Portal access is disabled. Contact your admin.' };
+  if (isAccountLocked(access) || access.loginStatus === 'locked') return { ok: false, reason: 'locked', message: 'Account locked — too many failed attempts. Contact your admin to unlock.' };
+  if (access.portalRole !== role) return { ok: false, reason: 'wrong_portal', message: `This account is not set up for ${role} login.` };
+  if (!access.pinSet) return { ok: false, reason: 'pin_required', message: 'PIN setup required — please set your PIN or contact your admin.' };
+  if (!isPinFormat(pin)) return { ok: false, reason: 'bad_pin', message: 'Enter your 4- or 6-digit PIN.' };
   return { ok: true, employee };
 }

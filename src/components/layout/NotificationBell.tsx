@@ -18,6 +18,7 @@ const TYPE_ICON: Record<NotificationType, IconName> = {
   advance_added: 'banknote',
   advance_adjusted: 'banknote',
   admin_override: 'shield',
+  portal_access: 'lock',
 };
 
 function timeAgo(iso: string): string {

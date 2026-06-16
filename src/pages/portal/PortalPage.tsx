@@ -1,6 +1,6 @@
 import { useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Avatar, Badge, Button, Card, Icon, Input, KV, Modal, Select, StatCard, type IconName } from '../../components/ui';
+import { Avatar, BackButton, Badge, Button, Card, Icon, Input, KV, Modal, Select, StatCard, type IconName } from '../../components/ui';
 import { SalarySlip } from '../../components/payroll/SalarySlip';
 import { NotificationBell } from '../../components/layout/NotificationBell';
 import { CONFIRMATION_META, PROOF_META } from '../../components/payroll/statusMeta';
@@ -68,11 +68,7 @@ export function PortalPage() {
       )}
 
       <main className="gx-scroll" style={{ maxWidth: 1100, margin: '0 auto', padding: isMobile ? '16px 14px 24px' : '20px 24px 40px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {section !== 'home' && isMobile && (
-          <button onClick={() => setSection('home')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', fontFamily: 'var(--font-sans)', padding: 0 }}>
-            <Icon name="chevronLeft" size={16} /> Home
-          </button>
-        )}
+        {section !== 'home' && <BackButton label="Portal home" onClick={() => setSection('home')} />}
         {section === 'home' && <HomeSection emp={emp} onSlip={() => setSlip(true)} onGoLeave={() => setSection('leave')} />}
         {section === 'attendance' && <AttendanceSection emp={emp} />}
         {section === 'leave' && <LeaveSection emp={emp} onRequest={() => setLeaveOpen(true)} />}

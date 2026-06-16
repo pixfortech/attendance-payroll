@@ -410,6 +410,21 @@ Routing by role is enforced (`admin → /`, `manager → /manager`, `employee �
 > 3. The function issues a **Firebase custom token** carrying role + branch claims.
 > 4. The client signs in with that token; **Firestore rules** then gate access by `request.auth.uid` + custom claims (admin = full · manager = assigned branch · employee = self). Failed-attempt lockout moves server-side.
 
+#### Admin portal-access controls (Step 2)
+
+From **Employee Master → open a person → Login access**, an admin manages a **Portal access** card with status badges (Active / Login disabled / PIN required / Locked · Employee vs Manager access · Password fallback on/off):
+
+- **Enable / disable** portal login. Enabling a fresh account lands it in **PIN required** (`pinSet = false`); enabling one that already has a PIN lands it **Active**. Disabling blocks login (the login screen shows "Portal access is disabled").
+- **Portal role** Employee or Manager. A manager **must be assigned a branch** (a warning shows until then); switching back to Employee clears the branch. The login type must match the role — an employee can't sign in via the Manager option, and vice-versa.
+- **Reset PIN** → `pinSet = false`, `loginStatus = pin_required`, `failedAttempts = 0`, `lockedUntil = null` (the user must set a new PIN next login; no PIN is generated or stored). **Unlock** / **Clear attempts** reset the lock counters. **Allow password login** toggles the fallback. **Login note** + **last login** are shown.
+- Every change writes an **audit log** entry (employee id/name, action, old → new, by, time) and a **notification** to the affected user.
+
+The PIN login flow honours these states: `loginEnabled`, not `disabled`, not `locked`, role match, `pinSet` (else a "PIN required" message), the 5-attempt lockout, and hides the password fallback when `passwordFallbackAllowed` is false. **All demo/local until the backend above lands — no plain PIN in Firestore; Master-Admin rules unchanged.**
+
+### 8. Navigation & back buttons
+
+A reusable **`BackButton`** (touch-friendly, mobile-first) gives every detail/sub-view a clear way back, so no page is a dead end (also survives refresh / direct URL via a route fallback): **Employee Detail → Employee Master**, **Employee portal sub-sections → Portal home**, **Manager portal sub-sections → Manager home**. The browser Back button keeps working alongside it.
+
 ---
 
 ## Design system

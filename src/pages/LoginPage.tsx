@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { Button, Chip, Icon, Input } from '../components/ui';
 import { useAppStore } from '../store/AppStore';
 import { useAuth } from '../auth/AuthProvider';
-import { findLoginUser, isPinFormat, MAX_PIN_ATTEMPTS } from '../lib/pinAuth';
-import type { Employee, Role } from '../types';
+import { findLoginUser, isPinFormat, MAX_PIN_ATTEMPTS, verifyPinLogin } from '../lib/pinAuth';
+import { isAccountLocked, portalAccessOf } from '../lib/portalAccess';
+import type { Employee, PortalRole, Role } from '../types';
 import logo from '../assets/ganguram-logo.png';
 import gauri from '../assets/gauri-mascot.png';
 
@@ -36,7 +37,7 @@ function readExpiredFlag(): boolean {
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { employees, login } = useAppStore();
+  const { employees, branches, login } = useAppStore();
   const { configured } = useAuth();
 
   const [role, setRole] = useState<Role>('admin');
@@ -56,6 +57,9 @@ export function LoginPage() {
   const locked = attempts >= MAX_PIN_ATTEMPTS;
   // Generic failure — never reveals whether the ID/mobile actually exists.
   const GENERIC_FAIL = 'Couldn’t sign you in. Check your ID and PIN, or contact your admin.';
+  // Hide the password fallback when the matched account disallows it.
+  const matched = findLoginUser(employees, identifier);
+  const fallbackAllowed = matched ? portalAccessOf(matched).passwordFallbackAllowed : true;
 
   const resetPortal = (nextRole: Role) => {
     setRole(nextRole);
@@ -74,7 +78,10 @@ export function LoginPage() {
     // TODO(backend): verify the PIN hash and sign in with a Firebase custom
     // token before creating the session — never trust the client alone.
     if (role === 'manager') {
-      login({ role: 'manager', name: user.name, branch: user.branch, employeeId: user.id });
+      // Managers operate on their assigned branch (falls back to their own).
+      const access = portalAccessOf(user);
+      const branch = access.managerBranchCode ? branches.find((b) => b.code === access.managerBranchCode)?.name ?? user.branch : user.branch;
+      login({ role: 'manager', name: user.name, branch, employeeId: user.id });
       navigate('/manager');
     } else {
       login({ role: 'employee', name: user.name, employeeId: user.id });
@@ -102,14 +109,20 @@ export function LoginPage() {
       setError('Enter your 4- or 6-digit PIN.');
       return;
     }
-    const user = findLoginUser(employees, identifier);
-    if (!user || user.login !== 'enabled') {
-      setPin('');
-      setAttempts((a) => a + 1);
-      setError(GENERIC_FAIL);
+    const result = verifyPinLogin(employees, identifier, value, role as PortalRole);
+    if (result.ok) {
+      grantPortal(result.employee);
       return;
     }
-    grantPortal(user);
+    setPin('');
+    // Account-state failures (disabled / locked / PIN-required) aren't "attempts".
+    if (result.reason === 'disabled' || result.reason === 'locked' || result.reason === 'pin_required') {
+      setError(result.message);
+      return;
+    }
+    // not_found stays generic (no enumeration); wrong portal explains the role.
+    setAttempts((a) => a + 1);
+    setError(result.reason === 'wrong_portal' ? result.message : GENERIC_FAIL);
   };
 
   const pushDigit = (d: string) => {
@@ -124,8 +137,25 @@ export function LoginPage() {
   const submitPassword = () => {
     setError(null);
     const user = findLoginUser(employees, identifier);
-    if (!user || user.login !== 'enabled' || !password) {
+    if (!user || !password) {
       setError(GENERIC_FAIL);
+      return;
+    }
+    const access = portalAccessOf(user);
+    if (!access.loginEnabled) {
+      setError('Portal access is disabled. Contact your admin.');
+      return;
+    }
+    if (isAccountLocked(access)) {
+      setError('Account locked — contact your admin to unlock.');
+      return;
+    }
+    if (access.portalRole !== role) {
+      setError(`This account is not set up for ${role} login.`);
+      return;
+    }
+    if (!access.passwordFallbackAllowed) {
+      setError('Password login is disabled for this account. Use your PIN.');
       return;
     }
     grantPortal(user); // DEMO password fallback — backend will verify a real credential.
@@ -225,6 +255,7 @@ export function LoginPage() {
               password={password}
               error={error}
               locked={locked}
+              fallbackAllowed={fallbackAllowed}
               showReset={showReset}
               onIdentifier={(v) => { setIdentifier(v); setError(null); }}
               onContinue={continueToPin}
@@ -274,6 +305,7 @@ function PortalAuth(props: {
   password: string;
   error: string | null;
   locked: boolean;
+  fallbackAllowed: boolean;
   showReset: boolean;
   onIdentifier: (v: string) => void;
   onContinue: () => void;
@@ -287,7 +319,7 @@ function PortalAuth(props: {
   onBack: () => void;
   onToggleReset: () => void;
 }) {
-  const { role, step, identifier, pin, password, error, locked, showReset } = props;
+  const { role, step, identifier, pin, password, error, locked, fallbackAllowed, showReset } = props;
   const who = role === 'manager' ? 'Branch managers' : 'Employees';
 
   if (step === 'identify') {
@@ -299,9 +331,11 @@ function PortalAuth(props: {
           {error && <ErrorNote text={error} />}
           <Button variant="primary" size="lg" full type="submit" iconRight={<Icon name="chevronRight" size={17} />}>Continue</Button>
         </form>
-        <div style={{ textAlign: 'center', marginTop: 14 }}>
-          <button type="button" onClick={props.onUsePassword} style={linkBtn}>Log in with password instead</button>
-        </div>
+        {fallbackAllowed && (
+          <div style={{ textAlign: 'center', marginTop: 14 }}>
+            <button type="button" onClick={props.onUsePassword} style={linkBtn}>Log in with password instead</button>
+          </div>
+        )}
         <div style={infoBox()}>
           <Icon name="info" size={14} color="var(--indigo-500)" style={{ marginTop: 1, flexShrink: 0 }} />
           <span><strong style={{ fontWeight: 700 }}>Demo PIN login</strong> — the PIN is checked locally only; secure backend verification + token login is coming. No PIN is stored.</span>
@@ -347,7 +381,7 @@ function PortalAuth(props: {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
         <button type="button" onClick={props.onToggleReset} style={linkBtn}>Forgot PIN? Reset PIN</button>
-        <button type="button" onClick={props.onUsePassword} style={linkBtn}>Log in with password instead</button>
+        {fallbackAllowed && <button type="button" onClick={props.onUsePassword} style={linkBtn}>Log in with password instead</button>}
       </div>
       {showReset && (
         <div style={{ fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface-inset)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '11px 13px', lineHeight: 1.5, marginTop: 8 }}>

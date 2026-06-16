@@ -8,6 +8,31 @@ export type SalaryBasis = 'fixed30' | 'calendar';
 export type EmployeeStatus = 'active' | 'resigned';
 export type LoginStatus = 'enabled' | 'disabled';
 
+/* ---------- Portal access (Phase 3A, Step 2) ----------
+   Admin-managed login controls for the Employee/Manager portals. No PIN (plain
+   or hashed) is stored here yet — see src/lib/pinAuth.ts for the backend plan. */
+export type PortalRole = 'employee' | 'manager';
+export type PortalLoginStatus = 'active' | 'disabled' | 'locked' | 'pin_required';
+
+export interface PortalAccess {
+  loginEnabled: boolean;
+  /** Whether the user has set a PIN (the PIN itself is never stored here). */
+  pinSet: boolean;
+  portalRole: PortalRole;
+  /** Derived from the fields above; persisted for display + future queries. */
+  loginStatus: PortalLoginStatus;
+  failedAttempts: number;
+  /** Epoch ms the lock expires; null when not locked. */
+  lockedUntil: number | null;
+  lastLoginAt: string | null;
+  loginNotes?: string;
+  /** For managers — the branch they manage (Firestore branchId + code). */
+  managerBranchId?: string | null;
+  managerBranchCode?: string | null;
+  /** Whether password login is allowed as a fallback to PIN. */
+  passwordFallbackAllowed: boolean;
+}
+
 export type PaymentMethod = 'Cash' | 'UPI' | 'Bank Transfer' | 'Cheque' | 'Other';
 
 /** A single tiffin/food allowance line — company-paid CTC, never a deduction. */
@@ -135,6 +160,9 @@ export interface Employee {
   /* Portal access */
   login: LoginStatus;
   lastLogin: string;
+  /** Admin-managed portal login controls (Phase 3A, Step 2). Optional for
+   *  backward compatibility — derive a default with portalAccessOf(). */
+  portalAccess?: PortalAccess;
 
   /* Tiffin / food allowance */
   halfTiffin: boolean;
@@ -318,7 +346,8 @@ export type NotificationType =
   | 'attendance_correction'
   | 'advance_added'
   | 'advance_adjusted'
-  | 'admin_override';
+  | 'admin_override'
+  | 'portal_access';
 
 export interface AppNotification {
   id: string;
