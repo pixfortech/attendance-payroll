@@ -12,17 +12,10 @@ import type { Employee } from '../types';
 import { CURRENT_MONTH } from '../data/month';
 import { dailySalary, round2 } from '../services/salary';
 import { evaluateEligibility } from '../services/eligibility';
+import { employeeTenureMonths } from './payroll';
 
-/** Inclusive day count between two ISO dates (yyyy-mm-dd). 0 if invalid/reversed. */
-export function daysBetween(startISO: string, endISO: string): number {
-  if (!startISO || !endISO) return 0;
-  const s = new Date(startISO);
-  const e = new Date(endISO);
-  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 0;
-  const ms = new Date(e.getFullYear(), e.getMonth(), e.getDate()).getTime() - new Date(s.getFullYear(), s.getMonth(), s.getDate()).getTime();
-  if (ms < 0) return 0;
-  return Math.floor(ms / 86_400_000) + 1;
-}
+/** Inclusive day count between two dates — re-exported from the central util. */
+export { daysInclusive as daysBetween } from './dates';
 
 export interface LeaveImpact {
   monthlySalary: number;
@@ -46,7 +39,7 @@ export interface LeaveImpact {
 
 /** Estimate the salary impact of an employee taking `requestedDays` of leave. */
 export function estimateLeaveImpact(employee: Employee, requestedDays: number): LeaveImpact {
-  const eligibility = evaluateEligibility({ tenureMonths: employee.tenureMonths, workedDays: employee.worked, status: employee.status });
+  const eligibility = evaluateEligibility({ tenureMonths: employeeTenureMonths(employee), workedDays: employee.worked, status: employee.status });
   const daily = dailySalary({ monthlySalary: employee.salary, basis: employee.basis, isJoiningMonth: employee.isJoiningMonth, calendarDays: CURRENT_MONTH.calendarDays });
   const freeLeaveAllowed = eligibility.freeLeaveAllowed;
   const alreadyUsed = employee.leaveUsed;

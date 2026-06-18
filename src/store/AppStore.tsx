@@ -39,6 +39,7 @@ import { employeeBreakdown, isActiveEmployee, salaryStatus } from '../lib/payrol
 import { loginStatusOf, portalAccessOf } from '../lib/portalAccess';
 import { evaluateCapture } from '../lib/attendanceCapture';
 import { enqueuePending, pendingId, syncPending } from '../lib/attendanceSync';
+import { todayISO } from '../lib/dates';
 import { useToast } from '../components/ui/Toast';
 import { auth, firebaseConfigured } from '../lib/firebase';
 import { bulkUpsertBranches, bulkUpsertEmployees, deleteBranchDoc, deleteEmployeeDoc, loadBranches, loadEmployees, upsertBranch, upsertEmployee } from '../lib/firestoreRepo';
@@ -237,7 +238,7 @@ interface AppContextValue {
   addEmployee: (input: NewEmployeeInput) => void;
   addBranch: (input: NewBranchInput) => void;
   updateEmployeeProfile: (id: string, patch: Partial<Employee>) => void;
-  setEmployeeStatus: (id: string, status: EmployeeStatus) => void;
+  setEmployeeStatus: (id: string, status: EmployeeStatus, resignedAt?: string) => void;
   setEmployeeBasis: (id: string, basis: Employee['basis']) => void;
   setEmployeeLogin: (id: string, enabled: boolean) => void;
   /** Admin portal-access controls (enable/disable/role/branch/reset/unlock/…). */
@@ -787,10 +788,21 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         toast('Employee updated');
       },
 
-      setEmployeeStatus: (id, status) => {
+      setEmployeeStatus: (id, status, resignedAt) => {
         const cur = employees.find((e) => e.id === id);
-        updateEmployee(id, (e) => recomputeLeavePaidFlags({ ...e, status }));
-        if (cur) persistEmployee(recomputeLeavePaidFlags({ ...cur, status }));
+        // Resigning sets the ending date (default today); reactivating clears it
+        // and re-enables portal login per current policy.
+        const patch = (e: Employee): Employee =>
+          status === 'resigned'
+            ? { ...e, status, resignedAt: resignedAt ?? todayISO() }
+            : { ...e, status, resignedAt: undefined };
+        updateEmployee(id, (e) => recomputeLeavePaidFlags(patch(e)));
+        if (cur) {
+          const next = recomputeLeavePaidFlags(patch(cur));
+          persistEmployee(next);
+          pushAudit({ entity: 'Employee', target: `${cur.name} (${cur.id})`, field: status === 'resigned' ? 'Marked resigned' : 'Marked active', oldValue: cur.status, newValue: status, reason: status === 'resigned' ? `Ending date ${next.resignedAt}` : undefined });
+          addNotif({ recipient: { employeeId: id }, type: 'portal_access', title: status === 'resigned' ? 'Marked resigned' : 'Reactivated', message: status === 'resigned' ? `Marked resigned effective ${next.resignedAt}.` : 'Your record was reactivated.', relatedId: id });
+        }
         toast(status === 'resigned' ? 'Marked as resigned' : 'Marked as active');
       },
 

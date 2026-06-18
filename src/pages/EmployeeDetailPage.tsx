@@ -30,9 +30,11 @@ import { EmployeeFormModal } from '../components/payroll/EmployeeFormModal';
 import { CONFIRMATION_META } from '../components/payroll/statusMeta';
 import { useAppStore } from '../store/AppStore';
 import type { DocumentKind, PortalRole, TiffinLabel } from '../types';
-import { employeeBreakdown, employeeOutstandingAdvance, employeeTiffinTotal } from '../lib/payroll';
-import { managerNeedsBranch, portalAccessOf, PORTAL_STATUS_META } from '../lib/portalAccess';
+import { employeeBreakdown, employeeDaysWorked, employeeOutstandingAdvance, employeeTenureMonths, employeeTiffinTotal } from '../lib/payroll';
+import { isAccountLocked, managerNeedsBranch, portalAccessOf, PORTAL_STATUS_META } from '../lib/portalAccess';
+import { validatePin } from '../lib/pinAuth';
 import { activeBranches } from '../lib/branches';
+import { formatDMY, isFutureISO, todayISO } from '../lib/dates';
 import { evaluateEligibility, formatINR, formatINR0, tiffinPerDay } from '../services';
 import { CURRENT_MONTH } from '../data';
 import type { Employee } from '../types';
@@ -49,15 +51,12 @@ export function EmployeeDetailPage() {
   const [advOpen, setAdvOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [resignOpen, setResignOpen] = useState(false);
 
-  const toggleStatus = async () => {
+  const toggleStatus = () => {
     if (!emp) return;
-    if (emp.status === 'active') {
-      const ok = await confirm({ title: 'Mark as resigned?', message: `${emp.name} will be marked resigned and excluded from free-leave eligibility this month.`, confirmLabel: 'Mark resigned', tone: 'danger', icon: 'logout' });
-      if (ok) setEmployeeStatus(emp.id, 'resigned');
-    } else {
-      setEmployeeStatus(emp.id, 'active');
-    }
+    if (emp.status === 'active') setResignOpen(true);
+    else setEmployeeStatus(emp.id, 'active');
   };
 
   const toggleArchive = async () => {
@@ -145,22 +144,58 @@ export function EmployeeDetailPage() {
       {advOpen && <AdvanceModalConnected emp={emp} onClose={() => setAdvOpen(false)} />}
       {payOpen && <PaymentModalConnected emp={emp} onClose={() => setPayOpen(false)} />}
       {editOpen && <EmployeeFormModal employee={emp} onClose={() => setEditOpen(false)} />}
+      {resignOpen && <ResignModal emp={emp} onClose={() => setResignOpen(false)} onConfirm={(dateISO) => { setEmployeeStatus(emp.id, 'resigned', dateISO); setResignOpen(false); }} />}
     </div>
+  );
+}
+
+/* ---------- Mark resigned (date picker, blocks future) ---------- */
+function ResignModal({ emp, onClose, onConfirm }: { emp: Employee; onClose: () => void; onConfirm: (dateISO: string) => void }) {
+  const [date, setDate] = useState(todayISO());
+  const future = isFutureISO(date);
+  const valid = !!date && !future;
+  return (
+    <Modal
+      icon="logout"
+      title="Mark as resigned"
+      subtitle={`${emp.name} · ${emp.id}`}
+      onClose={onClose}
+      width={460}
+      footer={
+        <>
+          <Button variant="ghost" full onClick={onClose}>Cancel</Button>
+          <Button variant="primary" full disabled={!valid} onClick={() => onConfirm(date)}>Mark resigned</Button>
+        </>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <Input label="Resignation / ending date" type="date" value={date} max={todayISO()} onChange={(e) => setDate(e.target.value)} />
+        {future && <div style={{ fontSize: 12, color: 'var(--coral-700)', background: 'var(--coral-50)', border: '1px solid var(--coral-100)', borderRadius: 'var(--radius-sm)', padding: '9px 11px' }}>Future resignation dates are not allowed.</div>}
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface-inset)', borderRadius: 'var(--radius-sm)', padding: '9px 11px', lineHeight: 1.5 }}>
+          {emp.name} will be marked resigned effective this date. Days-worked stops here, free-leave eligibility uses resignation-month logic, and portal access can be disabled from Login access.
+        </div>
+      </div>
+    </Modal>
   );
 }
 
 /* ---------- Profile ---------- */
 function ProfilePanel({ emp }: { emp: Employee }) {
   const b = employeeBreakdown(emp);
-  const conds = evaluateEligibility({ tenureMonths: emp.tenureMonths, workedDays: emp.worked, status: emp.status }).conditions;
+  const tenure = employeeTenureMonths(emp);
+  const daysWorked = employeeDaysWorked(emp);
+  const conds = evaluateEligibility({ tenureMonths: tenure, workedDays: emp.worked, status: emp.status }).conditions;
+  const tenureLabel = tenure >= 12 ? `${Math.floor(tenure / 12)}y ${tenure % 12}m` : `${tenure} months`;
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 16, alignItems: 'start' }}>
       <Card title="Employment details">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 28px' }}>
           <KV label="Branch" value={emp.branch} icon="mapPin" />
           <KV label="Role" value={emp.role} icon="briefcase" />
-          <KV label="Joining date" value={emp.joined} icon="calendar" />
-          <KV label="Tenure" value={`${emp.tenureMonths} months`} icon="clock" />
+          <KV label="Joining date" value={formatDMY(emp.joined)} icon="calendar" />
+          <KV label={emp.status === 'resigned' ? 'Ending / resigned date' : 'Ending date'} value={emp.status === 'resigned' ? formatDMY(emp.resignedAt) : 'Active'} icon="calendar" valueColor={emp.status === 'resigned' ? 'var(--coral-600)' : undefined} />
+          <KV label="Tenure" value={tenureLabel} icon="clock" />
+          <KV label="Days worked in company" value={`${daysWorked} days`} mono icon="history" />
           <KV label="Monthly salary" value={emp.salaryMissing ? 'Missing — set before payroll' : formatINR0(emp.salary)} mono icon="wallet" valueColor={emp.salaryMissing ? 'var(--amber-700)' : undefined} />
           <KV label="Salary basis" value={BASIS_LABEL[emp.basis]} icon="calculator" />
           <KV label="Daily salary" value={formatINR(b.daily)} mono icon="rupee" />
@@ -187,6 +222,54 @@ function ProfilePanel({ emp }: { emp: Employee }) {
         </div>
       </Card>
     </div>
+  );
+}
+
+/* ---------- Set / reset PIN (no plain PIN stored) ---------- */
+function SetPinModal({ emp, onClose }: { emp: Employee; onClose: () => void }) {
+  const { updatePortalAccess } = useAppStore();
+  const [pin, setPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = () => {
+    setError(null);
+    const v = validatePin(pin); // 4/6 digits, blocks weak PINs
+    if (!v.ok) return setError(v.message ?? 'Invalid PIN.');
+    if (pin !== confirmPin) return setError('PINs do not match.');
+    // TODO(backend): call Cloud Function setEmployeePin(employeeId, pin) which
+    // salts + hashes the PIN server-side and stores only hash/salt metadata.
+    // verifyPinLogin then verifies server-side and issues a Firebase custom
+    // token. The plain PIN is NEVER stored on the client or in Firestore — here
+    // we only flip the pinSet metadata so demo login keeps working.
+    updatePortalAccess(emp.id, { pinSet: true, failedAttempts: 0, lockedUntil: null }, { action: 'PIN set', notify: { title: 'PIN set', message: 'Your portal PIN was set by an admin.' } });
+    onClose();
+  };
+
+  return (
+    <Modal
+      icon="lock"
+      title={emp.portalAccess?.pinSet ? 'Reset PIN' : 'Set PIN'}
+      subtitle={`${emp.name} · ${emp.id}`}
+      onClose={onClose}
+      width={460}
+      footer={
+        <>
+          <Button variant="ghost" full onClick={onClose}>Cancel</Button>
+          <Button variant="primary" full onClick={submit}>Save PIN</Button>
+        </>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <Input label="New PIN (4 or 6 digits)" type="password" inputMode="numeric" value={pin} onChange={(e) => { setPin(e.target.value); setError(null); }} icon="lock" placeholder="••••" />
+        <Input label="Confirm PIN" type="password" inputMode="numeric" value={confirmPin} onChange={(e) => { setConfirmPin(e.target.value); setError(null); }} icon="lock" placeholder="••••" />
+        {error && <div style={{ fontSize: 12.5, color: 'var(--coral-700)', background: 'var(--coral-50)', border: '1px solid var(--coral-100)', borderRadius: 'var(--radius-sm)', padding: '9px 11px' }}>{error}</div>}
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface-inset)', borderRadius: 'var(--radius-sm)', padding: '9px 11px', lineHeight: 1.5 }}>
+          <Icon name="shield" size={13} color="var(--indigo-500)" style={{ verticalAlign: '-2px', marginRight: 4 }} />
+          Secure backend PIN hashing is not enabled yet. The PIN is <strong>not stored</strong> (plain or hashed) anywhere — this marks the account as PIN-set for the demo login. Real verification will use a Cloud Function + Firebase custom token.
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -531,9 +614,14 @@ function LoginPanel({ emp }: { emp: Employee }) {
   const toast = useToast();
   const a = portalAccessOf(emp);
   const [note, setNote] = useState(a.loginNotes ?? '');
+  const [setPinOpen, setSetPinOpen] = useState(false);
   const status = PORTAL_STATUS_META[a.loginStatus];
+  const locked = isAccountLocked(a) || a.loginStatus === 'locked';
   const branchOptions = [{ value: '', label: 'Select branch…' }, ...activeBranches(branches).map((b) => ({ value: b.code, label: b.name }))];
   const needsBranch = managerNeedsBranch(a);
+
+  // Admin-set lock: a far-future lockedUntil (cleared by Unlock).
+  const lock = () => updatePortalAccess(emp.id, { lockedUntil: Date.now() + 365 * 24 * 60 * 60 * 1000, failedAttempts: 5 }, { action: 'Account locked', notify: { title: 'Account locked', message: 'Your portal login was locked by an admin.' } });
 
   const setEnabled = (next: boolean) =>
     updatePortalAccess(emp.id, { loginEnabled: next }, {
@@ -546,11 +634,6 @@ function LoginPanel({ emp }: { emp: Employee }) {
     const b = branches.find((x) => x.code === code);
     updatePortalAccess(emp.id, { managerBranchId: b?.id ?? null, managerBranchCode: b?.code ?? null }, { action: 'Manager branch changed', notify: { title: 'Branch assignment updated', message: `You now manage ${b?.name ?? '—'}.` } });
   };
-  const resetPin = () =>
-    updatePortalAccess(emp.id, { pinSet: false, failedAttempts: 0, lockedUntil: null }, {
-      action: 'PIN reset requested', reason: 'Admin reset PIN (demo)',
-      notify: { title: 'PIN reset required', message: 'Your PIN was reset. You must set a new PIN on next login.' },
-    });
   const unlock = () =>
     updatePortalAccess(emp.id, { failedAttempts: 0, lockedUntil: null }, { action: 'Account unlocked', notify: { title: 'Account unlocked', message: 'Your portal login was unlocked.' } });
   const clearAttempts = () => updatePortalAccess(emp.id, { failedAttempts: 0 }, { action: 'Failed attempts cleared' });
@@ -588,8 +671,12 @@ function LoginPanel({ emp }: { emp: Employee }) {
         )}
 
         <div style={{ display: 'flex', gap: 9, marginTop: 14, flexWrap: 'wrap' }}>
-          <Button variant="secondary" size="sm" iconLeft={<Icon name="refresh" size={15} />} onClick={resetPin}>Reset PIN</Button>
-          <Button variant="secondary" size="sm" iconLeft={<Icon name="unlock" size={15} />} onClick={unlock}>Unlock</Button>
+          <Button variant="secondary" size="sm" iconLeft={<Icon name="lock" size={15} />} onClick={() => setSetPinOpen(true)}>{a.pinSet ? 'Reset PIN' : 'Set PIN'}</Button>
+          {locked ? (
+            <Button variant="secondary" size="sm" iconLeft={<Icon name="unlock" size={15} />} onClick={unlock}>Unlock</Button>
+          ) : (
+            <Button variant="secondary" size="sm" iconLeft={<Icon name="lock" size={15} />} disabled={!a.loginEnabled} onClick={lock}>Lock</Button>
+          )}
           <Button variant="ghost" size="sm" onClick={clearAttempts}>Clear attempts ({a.failedAttempts})</Button>
           <Button variant="ghost" size="sm" iconLeft={<Icon name="mail" size={15} />} disabled={!a.loginEnabled} onClick={() => toast(`Portal invite sent to ${emp.name}`)}>Invite</Button>
         </div>
@@ -608,9 +695,10 @@ function LoginPanel({ emp }: { emp: Employee }) {
         <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 12, lineHeight: 1.5 }}>
           <Icon name="shield" size={13} color="var(--indigo-500)" style={{ verticalAlign: '-2px', marginRight: 4 }} />
           {/* TODO(backend): the PIN is verified by a Cloud Function against a salted hash. */}
-          Reset PIN sets the account to “PIN required” for next login. No PIN (plain or hashed) is stored in Firestore yet.
+          Setting a PIN marks the account active. <strong>No PIN (plain or hashed) is stored</strong> — secure hashing + verification will move to a Cloud Function.
         </div>
       </Card>
+      {setPinOpen && <SetPinModal emp={emp} onClose={() => setSetPinOpen(false)} />}
 
       <Card title="What the employee can see" subtitle="Read-only self-service portal">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>

@@ -16,6 +16,9 @@ export interface InputProps {
   required?: boolean;
   mono?: boolean;
   inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
+  /** For date/number inputs. */
+  min?: string;
+  max?: string;
   id?: string;
   style?: CSSProperties;
 }
@@ -36,6 +39,8 @@ export function Input({
   required = false,
   mono = false,
   inputMode,
+  min,
+  max,
   id,
   style = {},
 }: InputProps) {
@@ -72,8 +77,11 @@ export function Input({
         <input
           id={inputId}
           type={type}
-          {...(onChange ? { value, onChange } : { defaultValue: value })}
+          {/* With onChange → controlled. Without → controlled read-only so
+              dynamic display values (e.g. computed leave days) still update. */ ...(onChange ? { value, onChange } : { value, readOnly: true })}
           {...(inputMode ? { inputMode } : {})}
+          {...(min ? { min } : {})}
+          {...(max ? { max } : {})}
           placeholder={placeholder}
           disabled={disabled}
           required={required}

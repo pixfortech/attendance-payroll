@@ -9,6 +9,7 @@
 
 import type { Employee, SalaryStatus } from '../types';
 import { CURRENT_MONTH } from '../data/month';
+import { daysInclusive, monthsBetween, parseDate, toISO, todayISO } from './dates';
 import {
   calculateSalary,
   tiffinTotal,
@@ -34,6 +35,24 @@ export function employeeAdvanceRemaining(employee: Employee): number {
   return outstandingAdvance(employee);
 }
 
+/** Tenure in whole months, computed from the (parsed) joining date — not the
+ *  stored figure, which is 0 for imported records. Stops at resignation. */
+export function employeeTenureMonths(employee: Employee): number {
+  const join = parseDate(employee.joined);
+  if (!join) return employee.tenureMonths ?? 0;
+  const end = (employee.status === 'resigned' && parseDate(employee.resignedAt)) || new Date();
+  return monthsBetween(join, end);
+}
+
+/** Calendar days in the company: joining → today (active) or → resignation
+ *  (resigned), inclusive of both endpoints. */
+export function employeeDaysWorked(employee: Employee): number {
+  const join = parseDate(employee.joined);
+  if (!join) return 0;
+  const endISO = employee.status === 'resigned' && employee.resignedAt ? employee.resignedAt : todayISO();
+  return daysInclusive(toISO(join), endISO);
+}
+
 /** Full salary breakdown for an employee in the running month. */
 export function employeeBreakdown(employee: Employee): SalaryBreakdown {
   return calculateSalary({
@@ -41,7 +60,7 @@ export function employeeBreakdown(employee: Employee): SalaryBreakdown {
     basis: employee.basis,
     isJoiningMonth: employee.isJoiningMonth,
     calendarDays: CURRENT_MONTH.calendarDays,
-    tenureMonths: employee.tenureMonths,
+    tenureMonths: employeeTenureMonths(employee),
     workedDays: employee.worked,
     status: employee.status,
     leaveUsed: employee.leaveUsed,

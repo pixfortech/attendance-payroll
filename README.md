@@ -454,6 +454,16 @@ Daily attendance can be captured several ways; the rules live in one tested plac
 
 All changes write through to Firestore with the localStorage fallback; Master-Admin rules are unchanged; no plain PIN is stored.
 
+### 11. Dates, tenure, resignation, PIN & bulk rules (hotfix)
+
+- **Central date handling** (`src/lib/dates.ts`): dates are stored **internally as ISO `YYYY-MM-DD`** and shown as **`DD/MM/YYYY`**; date inputs use ISO. `parseDate` safely reads ISO, `DD/MM/YYYY`, `DD-MM-YYYY` and human formats — tenure/leave are **never** computed from a display string. (Root cause of the old "Days = 0": a read-only field was uncontrolled; read-only inputs are now controlled so computed values update live.)
+- **Leave day count** is **inclusive** (19/06/2026 → 23/06/2026 = **5 days**) and the visible Days field uses the **same** function as the impact preview.
+- **Tenure & days worked** are computed from the **parsed joining date** (not the stored `0`): tenure = whole months joining → today (or → resignation); days worked = inclusive joining → today (active) or → ending date (resigned). Eligibility uses this computed tenure, so a `19/04/2024` joiner is correctly past the 3-month threshold.
+- **Resignation**: "Mark resigned" opens a confirmation with a **date picker (defaults to today, future blocked)**; it sets `resignedAt`, stops days-worked, applies resignation-month leave logic, and writes an audit log + notification. The profile shows joining date, ending/resigning date, days worked and tenure; joining date is editable via a date picker (ISO).
+- **Lock / Unlock label**: an active account shows **Lock**, a locked account shows **Unlock**, a disabled account shows the enable toggle. Lock sets `lockedUntil`; Unlock clears attempts/lock and restores `active`/`pin_required` per `pinSet`.
+- **Set / Reset PIN**: admin sets a 4/6-digit PIN (weak PINs blocked, confirm field). **No PIN is stored — plain or hashed — on the client or in Firestore**; only `pinSet` metadata flips. Real hashing + verification is a documented Cloud Function TODO (`setEmployeePin` → salted server-side hash → custom token).
+- **Bulk attendance**: admin can pick **all / multiple branches** (manager is locked to their branch); the employee list spans the selected branches with select-all; **dates default to today and future dates are blocked** (capped to today's working day); the confirmation summarises branches · employees · dates · mark · total entries.
+
 ---
 
 ## Design system

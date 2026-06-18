@@ -306,4 +306,42 @@ describe('App — smoke & navigation', () => {
     expect(screen.getByRole('button', { name: 'All absent' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'All half-day' })).toBeTruthy();
   });
+
+  it('apply-leave date range fills the Days field (matches estimated impact)', () => {
+    render(<App />);
+    fireEvent.click(within(screen.getByRole('complementary')).getByText('Leaves'));
+    fireEvent.click(screen.getByRole('button', { name: /Apply leave/ }));
+    fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-06-19' } });
+    fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-06-23' } });
+    expect((screen.getByLabelText('Days') as HTMLInputElement).value).toBe('5'); // 19→23 inclusive
+  });
+
+  it('employee detail shows computed tenure (not 0 months) + days worked', () => {
+    render(<App />);
+    fireEvent.click(within(screen.getByRole('complementary')).getByText('Employees'));
+    fireEvent.click(screen.getByText('Subir Maity'));
+    expect(screen.getByText('Days worked in company')).toBeTruthy();
+    expect(screen.queryByText('0 months')).toBeNull();
+  });
+
+  it('login access shows Lock for an active account (not a misleading Unlock)', () => {
+    render(<App />);
+    fireEvent.click(within(screen.getByRole('complementary')).getByText('Employees'));
+    fireEvent.click(screen.getByText('Subir Maity'));
+    fireEvent.click(screen.getByText('Login access')); // tab
+    expect(screen.getByRole('button', { name: 'Lock' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Unlock' })).toBeNull();
+    expect(screen.getByRole('button', { name: /Set PIN|Reset PIN/ })).toBeTruthy();
+  });
+
+  it('bulk attendance offers multiple branches and blocks future dates', () => {
+    window.history.pushState({}, '', '/attendance');
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: /Bulk mark/ }));
+    expect(screen.getByText(/Future attendance marking is not allowed/i)).toBeTruthy(); // modal open
+    // Branch chips for several active branches (also appear in the grid's filter,
+    // hence getAllByText).
+    expect(screen.getAllByText('Beadon Street').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Baranagar').length).toBeGreaterThan(0);
+  });
 });

@@ -147,6 +147,8 @@ export interface Employee {
   salaryMissing?: boolean;
   basis: SalaryBasis;
   status: EmployeeStatus;
+  /** ISO date the employee resigned (set when marked resigned). */
+  resignedAt?: string;
 
   /* This-month attendance figures */
   worked: number;

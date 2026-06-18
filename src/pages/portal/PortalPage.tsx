@@ -1,7 +1,8 @@
 import { useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Avatar, BackButton, Badge, Button, Card, Icon, Input, KV, Modal, Select, StatCard, type IconName } from '../../components/ui';
+import { Avatar, BackButton, Badge, Button, Card, Icon, KV, Select, StatCard, type IconName } from '../../components/ui';
 import { SalarySlip } from '../../components/payroll/SalarySlip';
+import { ApplyLeaveModal } from '../../components/payroll/ApplyLeaveModal';
 import { NotificationBell } from '../../components/layout/NotificationBell';
 import { CONFIRMATION_META, PROOF_META } from '../../components/payroll/statusMeta';
 import { useAppStore } from '../../store/AppStore';
@@ -10,7 +11,7 @@ import { employeeBreakdown, employeeAdvanceAdjustment, employeeAdvanceRemaining,
 import { PROOF_METHOD_LABEL } from '../../services/attendance';
 import { formatINR, formatINR0, formatSignedINR } from '../../services';
 import { CURRENT_MONTH } from '../../data';
-import type { ConfirmationStatus, Employee, LeaveType } from '../../types';
+import type { ConfirmationStatus, Employee } from '../../types';
 import logo from '../../assets/ganguram-logo.png';
 import gauri from '../../assets/gauri-mascot.png';
 
@@ -91,7 +92,7 @@ export function PortalPage() {
       )}
 
       {slip && <SalarySlip employee={emp} onClose={() => setSlip(false)} />}
-      {leaveOpen && <LeaveRequestModal emp={emp} onClose={() => setLeaveOpen(false)} />}
+      {leaveOpen && <ApplyLeaveModal employee={emp} onClose={() => setLeaveOpen(false)} />}
     </div>
   );
 }
@@ -349,46 +350,6 @@ function ProfileSection({ emp, onSignOut }: { emp: Employee; onSignOut: () => vo
   );
 }
 
-function LeaveRequestModal({ emp, onClose }: { emp: Employee; onClose: () => void }) {
-  const { addLeaveRequest } = useAppStore();
-  const [dateLabel, setDateLabel] = useState('');
-  const [days, setDays] = useState('1');
-  const [type, setType] = useState<LeaveType>('Casual');
-  const [reason, setReason] = useState('');
-
-  const submit = () => {
-    addLeaveRequest(emp.id, { dateLabel: dateLabel || '—', days: Number(days) || 1, type, reason: reason || '—', status: 'pending' });
-    onClose();
-  };
-
-  return (
-    <Modal
-      icon="calendar"
-      title="Request leave"
-      subtitle="Your manager will approve or reject"
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="ghost" full onClick={onClose}>Cancel</Button>
-          <Button variant="primary" full onClick={submit}>Submit request</Button>
-        </>
-      }
-    >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 12 }}>
-          <Input label="Date(s)" value={dateLabel} onChange={(e) => setDateLabel(e.target.value)} placeholder="e.g. 18–19 Mar" icon="calendar" />
-          <Input label="Days" mono value={days} onChange={(e) => setDays(e.target.value)} />
-        </div>
-        <Select label="Leave type" value={type} onChange={(e) => setType(e.target.value as LeaveType)} options={['Casual', 'Sick', 'Earned', 'Other']} />
-        <Input label="Reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Brief reason" />
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, color: 'var(--blue-700)', background: 'var(--blue-50)', border: '1px solid var(--blue-100)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
-          <Icon name="info" size={14} style={{ marginTop: 1 }} />
-          The first 4 eligible leave days a month are paid; beyond that, leave is deductible.
-        </div>
-      </div>
-    </Modal>
-  );
-}
 
 function pillStyle(active: boolean): CSSProperties {
   return {

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button, Input, Modal, Select } from '../ui';
 import { useAppStore } from '../../store/AppStore';
 import { activeBranchNames } from '../../lib/branches';
-import { CURRENT_MONTH } from '../../data';
+import { todayISO, toISODate } from '../../lib/dates';
 import type { Employee } from '../../types';
 
 const ROLES = ['Counter Sales', 'Cashier', 'Kitchen', 'Packing', 'Delivery', 'Manager', 'Helper'];
@@ -14,7 +14,7 @@ export function EmployeeFormModal({ employee, onClose }: { employee?: Employee; 
   const [name, setName] = useState(employee?.name ?? '');
   const [branch, setBranch] = useState(employee?.branch ?? branchNames[0] ?? '');
   const [role, setRole] = useState(employee?.role ?? ROLES[0]);
-  const [joined, setJoined] = useState(employee?.joined ?? `01 ${CURRENT_MONTH.short}`);
+  const [joined, setJoined] = useState(toISODate(employee?.joined) || todayISO());
   const [salary, setSalary] = useState(String(employee?.salary ?? ''));
   const [basis, setBasis] = useState<Employee['basis']>(employee?.basis ?? 'fixed30');
   const [phone, setPhone] = useState(employee?.phone ?? '');
@@ -52,7 +52,7 @@ export function EmployeeFormModal({ employee, onClose }: { employee?: Employee; 
           <Select label="Role / designation" value={role} onChange={(e) => setRole(e.target.value)} options={ROLES} />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <Input label="Joining date" value={joined} onChange={(e) => setJoined(e.target.value)} icon="calendar" />
+          <Input label="Joining date" type="date" value={joined} max={todayISO()} onChange={(e) => setJoined(e.target.value)} />
           <Input label="Monthly salary" prefix="₹" mono value={salary} onChange={(e) => setSalary(e.target.value)} placeholder="0" required />
         </div>
         <Select
