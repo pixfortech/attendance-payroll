@@ -6,8 +6,9 @@
    it works without a PDF library; the user can print → Save as PDF.
    ============================================================ */
 import type { Employee } from '../types';
+import type { Mark } from '../data/attendanceMarks';
 import { CURRENT_MONTH } from '../data/month';
-import { employeeAdvanceAdjustment, employeeAdvanceRemaining, employeeBreakdown, salaryStatus } from './payroll';
+import { employeeAdvanceRemaining, employeeBreakdown, salaryStatus } from './payroll';
 import { formatINR } from '../services/format';
 
 const STATUS_LABEL: Record<string, string> = { notstarted: 'Not started', requested: 'Requested', pending: 'Pending', approved: 'Approved', paid: 'Paid', hold: 'On hold' };
@@ -17,10 +18,11 @@ function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 }
 
-/** Build a complete, filled payslip HTML document for one employee/month. */
-export function buildPayslipHtml(employee: Employee): string {
-  const b = employeeBreakdown(employee);
-  const adjusted = employeeAdvanceAdjustment(employee);
+/** Build a complete, filled payslip HTML document for one employee/month.
+ *  Pass the month's attendance `marks` so figures match the salary table. */
+export function buildPayslipHtml(employee: Employee, marks?: Mark[]): string {
+  const b = employeeBreakdown(employee, marks);
+  const adjusted = b.advanceAdjustment;
   const remaining = employeeAdvanceRemaining(employee);
   const status = salaryStatus(employee);
 
@@ -32,14 +34,13 @@ export function buildPayslipHtml(employee: Employee): string {
     ['Monthly salary', employee.salaryMissing ? '—' : formatINR(employee.salary)],
     ['Salary basis', BASIS_LABEL[employee.basis]],
     ['Daily rate', formatINR(b.daily)],
-    ['Present days', String(employee.daysPresent)],
-    ['Half days', String(employee.daysHalf)],
-    ['Leave days', String(employee.leaveUsed)],
-    ['Absent days', String(employee.daysAbsent)],
+    ['Present days', String(b.presentDays)],
+    ['Half days', String(b.halfDays)],
+    ['Leave days', String(b.leaveDays)],
+    ['Absent days', String(b.absentDays)],
     ['Free / paid leave used', `${b.freeLeaveUsed} / ${b.freeLeaveAllowed}`],
-    ['Deductible days', String(b.deductibleDays)],
-    ['Attendance deduction', b.leaveDeduction > 0 ? '− ' + formatINR(b.leaveDeduction) : formatINR(0)],
-    ['Gross payable', formatINR(b.salaryPayable)],
+    ['Payable days', String(b.payableDays)],
+    ['Gross earned', formatINR(b.grossEarned)],
     ['Tiffin / allowance (CTC)', formatINR(b.tiffinTotal)],
     ['Advance adjusted (this month)', adjusted > 0 ? '− ' + formatINR(adjusted) : formatINR(0)],
     ['Advance remaining', formatINR(remaining)],
@@ -74,9 +75,9 @@ export function buildPayslipHtml(employee: Employee): string {
 }
 
 /** Download the payslip as a self-contained .html file. */
-export function downloadPayslip(employee: Employee): void {
+export function downloadPayslip(employee: Employee, marks?: Mark[]): void {
   if (typeof document === 'undefined') return;
-  const blob = new Blob([buildPayslipHtml(employee)], { type: 'text/html;charset=utf-8' });
+  const blob = new Blob([buildPayslipHtml(employee, marks)], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

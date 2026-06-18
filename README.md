@@ -464,6 +464,16 @@ All changes write through to Firestore with the localStorage fallback; Master-Ad
 - **Set / Reset PIN**: admin sets a 4/6-digit PIN (weak PINs blocked, confirm field). **No PIN is stored — plain or hashed — on the client or in Firestore**; only `pinSet` metadata flips. Real hashing + verification is a documented Cloud Function TODO (`setEmployeePin` → salted server-side hash → custom token).
 - **Bulk attendance**: admin can pick **all / multiple branches** (manager is locked to their branch); the employee list spans the selected branches with select-all; **dates default to today and future dates are blocked** (capped to today's working day); the confirmation summarises branches · employees · dates · mark · total entries.
 
+### 12. Salary is attendance-based (single source)
+
+`src/lib/salaryCalc.ts` (`computeSalary`) is the **one** salary calculator used by the salary table, slip modal, downloaded payslip, employee portal and approval/freeze — every view passes the **same month attendance marks** the Attendance grid uses, so **worked days always match**.
+
+- `daily = monthlySalary / 30` (fixed30) or `/ daysInMonth` (calendar/joining month).
+- `payableDays = present(1) + half(0.5) + paid-free-leave(1, within the 4-day bucket)`; absent / unpaid leave / **unmarked future days = 0** — full salary is never paid for partial attendance.
+- `grossEarned = daily × payableDays`; `netPayable = grossEarned + otherEarnings − otherDeductions − advanceAdjusted`. **Tiffin is a separate CTC and never affects net.**
+- **Worked example:** ₹10,000 fixed-30, 18 present → ₹333.33 × 18 = **₹5,999.94** gross & net (not ₹10,000).
+- **Approved/frozen runs:** the table always shows **live** attendance values; if a frozen `salaryEntry` differs it shows a **"Differs — recalc"** flag and a **Recalculate from attendance** action that re-freezes the entry (audit preserved). Mark-paid uses the corrected entry.
+
 ---
 
 ## Design system

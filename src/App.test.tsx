@@ -334,6 +334,28 @@ describe('App — smoke & navigation', () => {
     expect(screen.getByRole('button', { name: /Set PIN|Reset PIN/ })).toBeTruthy();
   });
 
+  it('salary uses attendance: 18 present on ₹10,000 fixed30 shows ₹5,999.94, not ₹10,000', () => {
+    localStorage.setItem('gng.v1.employees', JSON.stringify([fullEmp({ id: 'EMP001', name: 'Gobindo Das', salary: 10000, basis: 'fixed30', joined: '2024-04-19', worked: 18, daysPresent: 18 })]));
+    localStorage.setItem('gng.v1.attendanceMarks', JSON.stringify({ EMP001: Array.from({ length: 26 }, (_, i) => (i < 18 ? 'P' : 'O')) }));
+    window.history.pushState({}, '', '/salary');
+    render(<App />);
+    expect(screen.getByText('Gobindo Das')).toBeTruthy();
+    expect(screen.getByText('18 d')).toBeTruthy(); // worked matches attendance grid
+    expect(screen.getAllByText(/5,999\.94/).length).toBeGreaterThan(0); // gross + net
+    expect(screen.queryByText(/10,000\.00/)).toBeNull(); // not full monthly salary
+  });
+
+  it('flags a stale approved salary entry and shows live attendance values', () => {
+    localStorage.setItem('gng.v1.employees', JSON.stringify([fullEmp({ id: 'EMP001', name: 'Gobindo Das', salary: 10000, basis: 'fixed30', joined: '2024-04-19', worked: 18, daysPresent: 18, payrollStatus: 'approved' })]));
+    localStorage.setItem('gng.v1.attendanceMarks', JSON.stringify({ EMP001: Array.from({ length: 26 }, (_, i) => (i < 18 ? 'P' : 'O')) }));
+    localStorage.setItem('gng.v1.salaryEntries', JSON.stringify([{ id: 'se-2026-03-EMP001', salaryRunId: 'run-2026-03', employeeId: 'EMP001', month: 3, year: 2026, grossPayable: 10000, workedDays: 1, leaveUsed: 0, freeLeaveUsed: 0, deductionTotal: 0, advanceAdjustment: 0, tiffinCtc: 0, netPayable: 10000, status: 'approved', createdAt: '', updatedAt: '' }]));
+    window.history.pushState({}, '', '/salary');
+    render(<App />);
+    expect(screen.getAllByText(/5,999\.94/).length).toBeGreaterThan(0); // live values, not the stale 10,000
+    expect(screen.getByText(/Differs/)).toBeTruthy(); // mismatch flag
+    expect(screen.getAllByRole('button', { name: 'Recalculate' }).length).toBeGreaterThan(0);
+  });
+
   it('bulk attendance offers multiple branches and blocks future dates', () => {
     window.history.pushState({}, '', '/attendance');
     render(<App />);

@@ -8,15 +8,10 @@
    ============================================================ */
 
 import type { Employee, SalaryStatus } from '../types';
-import { CURRENT_MONTH } from '../data/month';
+import type { Mark } from '../data/attendanceMarks';
 import { daysInclusive, monthsBetween, parseDate, toISO, todayISO } from './dates';
-import {
-  calculateSalary,
-  tiffinTotal,
-  buildVariableScope,
-  outstandingAdvance,
-  type SalaryBreakdown,
-} from '../services';
+import { computeSalary, type SalaryResult } from './salaryCalc';
+import { tiffinTotal, buildVariableScope, outstandingAdvance } from '../services';
 
 /** Total tiffin CTC payable for an employee this month. */
 export function employeeTiffinTotal(employee: Employee): number {
@@ -53,19 +48,16 @@ export function employeeDaysWorked(employee: Employee): number {
   return daysInclusive(toISO(join), endISO);
 }
 
-/** Full salary breakdown for an employee in the running month. */
-export function employeeBreakdown(employee: Employee): SalaryBreakdown {
-  return calculateSalary({
-    monthlySalary: employee.salary,
-    basis: employee.basis,
-    isJoiningMonth: employee.isJoiningMonth,
-    calendarDays: CURRENT_MONTH.calendarDays,
-    tenureMonths: employeeTenureMonths(employee),
-    workedDays: employee.worked,
-    status: employee.status,
-    leaveUsed: employee.leaveUsed,
+/** Full attendance-based salary result for an employee in the running month.
+ *  Pass the month's attendance `marks` (from the store's attendanceMarks) so the
+ *  result matches the Attendance grid exactly; without marks it falls back to
+ *  the employee's denormalised figures. This is the single salary seam used by
+ *  the salary table, slip, payslip and portal. */
+export function employeeBreakdown(employee: Employee, marks?: Mark[]): SalaryResult {
+  return computeSalary(employee, {
+    marks,
+    advanceAdjusted: employeeAdvanceAdjustment(employee),
     tiffinTotal: employeeTiffinTotal(employee),
-    advanceAdjustment: employeeAdvanceAdjustment(employee),
   });
 }
 

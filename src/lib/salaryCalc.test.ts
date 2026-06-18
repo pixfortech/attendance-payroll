@@ -1,0 +1,56 @@
+import { describe, it, expect } from 'vitest';
+import { computeSalary } from './salaryCalc';
+import type { Employee } from '../types';
+import type { Mark } from '../data/attendanceMarks';
+
+const emp = (o: Partial<Employee>): Employee => ({ id: 'EMP001', name: 'Gobindo Das', branch: 'Beadon Street', branchCode: 'BD', role: 'employee', joined: '2024-04-19', isJoiningMonth: false, tenureMonths: 0, salary: 10000, basis: 'fixed30', status: 'active', worked: 0, daysPresent: 0, daysAbsent: 0, daysHalf: 0, leaveUsed: 0, phone: '', email: '', login: 'disabled', lastLogin: '', halfTiffin: true, tiffinDays: 0, tiffin: [], overtimeHours: 0, bonusAmount: 0, payrollStatus: 'pending', advances: [], payments: [], leaves: [], documents: [], ...o } as Employee);
+
+/** 26-working-day month grid with the given counts (rest = week-off). */
+const grid = (present: number, half = 0, leave = 0, absent = 0): Mark[] => {
+  const a = Array.from({ length: 26 }, () => 'O' as Mark);
+  let i = 0;
+  const put = (n: number, m: Mark) => { for (let k = 0; k < n && i < 26; k++) a[i++] = m; };
+  put(present, 'P'); put(half, 'H'); put(leave, 'L'); put(absent, 'A');
+  return a;
+};
+
+describe('computeSalary — the screenshot bug', () => {
+  it('18 present on ₹10,000 fixed 30-day = ₹333.33/day × 18 = ₹5,999.94 (not ₹10,000)', () => {
+    const r = computeSalary(emp({}), { marks: grid(18) });
+    expect(r.daily).toBeCloseTo(333.33, 2);
+    expect(r.workedDays).toBe(18);
+    expect(r.payableDays).toBe(18);
+    expect(r.grossEarned).toBeCloseTo(5999.94, 2);
+    expect(r.netSalary).toBeCloseTo(5999.94, 2);
+    expect(r.netSalary).not.toBe(10000);
+  });
+
+  it('tiffin is separate and does not change net payable', () => {
+    const r = computeSalary(emp({}), { marks: grid(18), tiffinTotal: 500 });
+    expect(r.tiffinTotal).toBe(500);
+    expect(r.netSalary).toBeCloseTo(5999.94, 2);
+  });
+
+  it('advance adjusted reduces net (₹1,000 → ₹4,999.94)', () => {
+    const r = computeSalary(emp({}), { marks: grid(18), advanceAdjusted: 1000 });
+    expect(r.netSalary).toBeCloseTo(4999.94, 2);
+  });
+
+  it('half-days count 0.5; paid free leave (within bucket) is payable', () => {
+    const r = computeSalary(emp({}), { marks: grid(16, 2, 4) }); // 16 P + 2 H + 4 L
+    expect(r.workedDays).toBe(17); // 16 + 0.5×2
+    expect(r.paidLeaveDays).toBe(4); // eligible → 4 free
+    expect(r.payableDays).toBe(21); // 17 + 4
+  });
+
+  it('unmarked/absent days are not paid (no silent full salary)', () => {
+    expect(computeSalary(emp({}), { marks: grid(0) }).netSalary).toBe(0);
+    expect(computeSalary(emp({}), { marks: grid(10, 0, 0, 5) }).workedDays).toBe(10);
+  });
+
+  it('calendar basis divides by days in month', () => {
+    const r = computeSalary(emp({ basis: 'calendar' }), { marks: grid(18) });
+    expect(r.daily).toBeGreaterThan(0);
+    expect(r.grossEarned).toBeCloseTo(r.daily * 18, 2);
+  });
+});

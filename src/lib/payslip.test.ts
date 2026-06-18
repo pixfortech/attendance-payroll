@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildPayslipHtml } from './payslip';
 import type { Advance, Employee } from '../types';
+import type { Mark } from '../data/attendanceMarks';
 
 const emp = (o: Partial<Employee>): Employee => ({ id: 'GNG-BD-0142', name: 'Subir Maity', branch: 'Beadon Street', role: 'Cashier', joined: '', isJoiningMonth: false, tenureMonths: 12, salary: 10000, basis: 'fixed30', status: 'active', worked: 23, daysPresent: 23, daysAbsent: 0, daysHalf: 0, leaveUsed: 0, phone: '', email: '', login: 'disabled', lastLogin: '', halfTiffin: true, tiffinDays: 0, tiffin: [], overtimeHours: 0, bonusAmount: 0, payrollStatus: 'pending', advances: [], payments: [], leaves: [], documents: [], ...o } as Employee);
 
@@ -19,5 +20,12 @@ describe('buildPayslipHtml', () => {
     const html = buildPayslipHtml(emp({ advances: [advance], advanceAdjustedThisMonth: 1000 }));
     expect(html).toMatch(/Advance adjusted[\s\S]*1,000/);
     expect(html).toMatch(/Advance remaining[\s\S]*3,000/);
+  });
+
+  it('uses attendance marks: 18 present on ₹10,000 fixed30 → ₹5,999.94 (not blank/₹10,000)', () => {
+    const marks = Array.from({ length: 26 }, (_, i) => (i < 18 ? 'P' : 'O')) as Mark[];
+    const html = buildPayslipHtml(emp({ salary: 10000, basis: 'fixed30' }), marks);
+    expect(html).toContain('5,999.94'); // gross earned + net
+    expect(html).toContain('Payable days');
   });
 });

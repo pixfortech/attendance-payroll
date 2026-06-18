@@ -5,18 +5,19 @@ import { RecordPaymentModal } from '../components/payroll/RecordPaymentModal';
 import { AdvanceAdjustModal } from '../components/payroll/AdvanceAdjustModal';
 import { SALARY_STATUS_META } from '../components/payroll/statusMeta';
 import { useAppStore } from '../store/AppStore';
-import { employeeAdvanceAdjustment, employeeAdvanceRemaining, employeeBreakdown, salaryStatus, canApproveSalary, isActiveEmployee } from '../lib/payroll';
+import { employeeAdvanceRemaining, employeeBreakdown, salaryStatus, canApproveSalary, isActiveEmployee } from '../lib/payroll';
 import { branchFilterOptions, employeeInBranch } from '../lib/branches';
 import { downloadCsv } from '../lib/download';
 import { downloadPayslip } from '../lib/payslip';
 import { formatINR } from '../services';
 import { CURRENT_MONTH } from '../data';
+import type { Mark } from '../data/attendanceMarks';
 import type { Employee, SalaryStatus } from '../types';
 
 const mono = { fontFamily: 'var(--font-mono)' as const };
 
 export function SalaryPage() {
-  const { employees, branches, setPayrollStatus, addPayment, approveAllPending, salaryEntries, logAudit } = useAppStore();
+  const { employees, branches, attendanceMarks, setPayrollStatus, addPayment, approveAllPending, salaryEntries, recalcSalaryFromAttendance, logAudit } = useAppStore();
   const confirm = useConfirm();
   const toast = useToast();
   const [tab, setTab] = useState<'all' | 'pending' | 'approved' | 'paid'>('all');
@@ -26,29 +27,38 @@ export function SalaryPage() {
   const [adjustFor, setAdjustFor] = useState<Employee | null>(null);
 
   const onDownload = (r: Employee) => {
-    downloadPayslip(r);
+    downloadPayslip(r, attendanceMarks[r.id]);
     logAudit({ entity: 'Salary', target: `${r.name} (${r.id})`, field: 'Payslip downloaded', oldValue: '—', newValue: CURRENT_MONTH.label });
     toast(`Payslip downloaded for ${r.name}`);
   };
 
   const active = employees.filter(isActiveEmployee);
-  // Prefer a frozen Firestore salary entry (written on approval/payment) over a
-  // live recalculation; fall back to the live breakdown when none exists.
+  // Always compute LIVE from the SAME attendance grid the Attendance page uses,
+  // so worked days + gross earned match exactly. A frozen salary entry is only
+  // used to FLAG a mismatch (see staleFor) — never to display stale numbers.
+  const marksFor = (id: string) => attendanceMarks[id] ?? Array.from({ length: CURRENT_MONTH.workingDays }, () => 'O' as Mark);
   const entryFor = (id: string) => salaryEntries.find((s) => s.employeeId === id && s.month === CURRENT_MONTH.month && s.year === CURRENT_MONTH.year);
   const figures = (r: Employee) => {
-    const se = entryFor(r.id);
-    const b = employeeBreakdown(r);
+    const b = employeeBreakdown(r, marksFor(r.id));
     return {
-      gross: se?.grossPayable ?? r.salary,
-      worked: se?.workedDays ?? r.worked,
-      leaveUsed: se?.leaveUsed ?? r.leaveUsed,
+      gross: b.grossEarned, // daily × payable days (attendance-based), not full monthly
+      worked: b.workedDays,
+      payableDays: b.payableDays,
+      leaveUsed: b.leaveDays,
       freeLeaveAllowed: b.freeLeaveAllowed,
-      deductionTotal: se?.deductionTotal ?? b.deductionTotal,
-      tiffinTotal: se?.tiffinCtc ?? b.tiffinTotal,
-      netSalary: se?.netPayable ?? b.netSalary,
-      advanceAdjusted: se?.advanceAdjustment ?? employeeAdvanceAdjustment(r),
+      deductionTotal: b.leaveDeduction,
+      tiffinTotal: b.tiffinTotal,
+      netSalary: b.netSalary,
+      advanceAdjusted: b.advanceAdjustment,
       advanceRemaining: employeeAdvanceRemaining(r),
     };
+  };
+  /** A frozen/approved entry whose values no longer match current attendance. */
+  const staleFor = (r: Employee) => {
+    const se = entryFor(r.id);
+    if (!se) return false;
+    const b = employeeBreakdown(r, marksFor(r.id));
+    return Math.abs((se.netPayable ?? 0) - b.netSalary) > 0.01 || Math.abs((se.workedDays ?? 0) - b.workedDays) > 0.001;
   };
   const inTab = (e: Employee) => {
     const s = salaryStatus(e);
@@ -84,6 +94,7 @@ export function SalaryPage() {
           <Button variant="secondary" size="sm" full={full} disabled={!canApproveSalary(r)} title={!canApproveSalary(r) ? 'Needs at least 1 worked day or a salary request' : undefined} iconLeft={<Icon name="badgeCheck" size={14} />} onClick={() => setPayrollStatus(r.id, 'approved')}>Approve</Button>
         )}
         {(s === 'pending' || s === 'requested' || s === 'approved') && <Button variant="ghost" size="sm" full={full} onClick={() => setPayrollStatus(r.id, 'hold')}>Hold</Button>}
+        {staleFor(r) && <Button variant="secondary" size="sm" full={full} iconLeft={<Icon name="refresh" size={14} />} onClick={() => recalcSalaryFromAttendance(r.id)}>Recalculate</Button>}
         {!full && <IconButton icon="banknote" label="Adjust advance" size="sm" onClick={() => setAdjustFor(r)} />}
         {!full && <IconButton icon="download" label="Download payslip" size="sm" onClick={() => onDownload(r)} />}
         {!full && <IconButton icon="eye" label="View slip" size="sm" onClick={() => setSlip(r)} />}
@@ -121,7 +132,7 @@ export function SalaryPage() {
     { key: 'advAdj', header: 'Advance adj.', align: 'right', render: (r) => { const a = figures(r).advanceAdjusted; return <span style={{ ...mono, color: a > 0 ? 'var(--coral-600)' : 'var(--text-subtle)' }}>{a > 0 ? '−' + formatINR(a) : '—'}</span>; } },
     { key: 'advRem', header: 'Advance rem.', align: 'right', render: (r) => { const a = figures(r).advanceRemaining; return <span style={{ ...mono, color: a > 0 ? 'var(--text-body)' : 'var(--text-subtle)' }}>{a > 0 ? formatINR(a) : '—'}</span>; } },
     { key: 'net', header: 'Net payable', align: 'right', render: (r) => (r.salaryMissing ? <span style={{ color: 'var(--text-subtle)' }}>—</span> : <span style={{ ...mono, fontWeight: 700, color: 'var(--text-strong)' }}>{formatINR(figures(r).netSalary)}</span>) },
-    { key: 'status', header: 'Status', render: (r) => { const s = SALARY_STATUS_META[salaryStatus(r)]; return <Badge variant={s.variant} dot>{s.label}</Badge>; } },
+    { key: 'status', header: 'Status', render: (r) => { const s = SALARY_STATUS_META[salaryStatus(r)]; return (<div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}><Badge variant={s.variant} dot>{s.label}</Badge>{staleFor(r) && <Badge variant="pending" size="sm" icon="alert">Differs — recalc</Badge>}</div>); } },
     { key: 'actions', header: 'Actions', align: 'right', render: (r) => <Actions r={r} /> },
   ];
 
@@ -197,11 +208,11 @@ export function SalaryPage() {
         />
       </Card>
 
-      {slip && <SalarySlip employee={slip} onClose={() => setSlip(null)} />}
+      {slip && <SalarySlip employee={slip} marks={marksFor(slip.id)} onClose={() => setSlip(null)} />}
       {payFor && (
         <RecordPaymentModal
           defaultType="Salary"
-          defaultAmount={String(employeeBreakdown(payFor).netSalary)}
+          defaultAmount={String(employeeBreakdown(payFor, marksFor(payFor.id)).netSalary)}
           onClose={() => setPayFor(null)}
           onSave={(p) => {
             addPayment(payFor.id, p);

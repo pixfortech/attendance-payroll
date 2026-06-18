@@ -5,6 +5,7 @@ import { downloadPayslip } from '../../lib/payslip';
 import { CURRENT_MONTH } from '../../data';
 import { CONFIRMATION_META, SALARY_STATUS_META } from './statusMeta';
 import type { Employee } from '../../types';
+import type { Mark } from '../../data/attendanceMarks';
 import logo from '../../assets/ganguram-logo.png';
 
 function tenureLabel(months: number): string {
@@ -36,8 +37,8 @@ function LineItem({
   );
 }
 
-export function SalarySlip({ employee, onClose }: { employee: Employee; onClose: () => void }) {
-  const b = employeeBreakdown(employee);
+export function SalarySlip({ employee, marks, onClose }: { employee: Employee; marks?: Mark[]; onClose: () => void }) {
+  const b = employeeBreakdown(employee, marks);
   const status = SALARY_STATUS_META[salaryStatus(employee)];
   const advanceRemaining = employeeAdvanceRemaining(employee);
   const lastSalaryPayment = employee.payments.find((p) => p.type === 'Salary');
@@ -105,27 +106,22 @@ export function SalarySlip({ employee, onClose }: { employee: Employee; onClose:
           )}
 
           <div style={{ marginTop: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>Earnings &amp; deductions</div>
-            <LineItem label="Gross monthly salary" value={employee.salaryMissing ? '—' : formatINR(employee.salary)} />
-            <LineItem label="Worked days" sub={`${employee.worked} of ${CURRENT_MONTH.workingDays} · daily ${formatINR(b.daily)}`} value={`${employee.worked} d`} />
-            <LineItem label="Attendance" sub={`${employee.daysPresent} present · ${employee.daysHalf} half · ${employee.daysAbsent} absent`} value={`${employee.daysPresent}P / ${employee.daysHalf}H / ${employee.daysAbsent}A`} />
-            <LineItem label="Paid leave" sub={`${employee.leaveUsed} used · ${b.freeLeaveAllowed} free / month`} value={`${employee.leaveUsed} / ${b.freeLeaveAllowed}`} />
-            <LineItem
-              label="Leave deduction"
-              sub={b.leaveDeduction > 0 ? `${b.deductibleDays} day(s) above free leave` : 'Within free-leave limit'}
-              value={b.leaveDeduction > 0 ? formatSignedINR(-b.leaveDeduction) : formatINR(0)}
-              tone={b.leaveDeduction > 0 ? 'red' : undefined}
-            />
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>Earnings (attendance-based)</div>
+            <LineItem label="Monthly salary" value={employee.salaryMissing ? '—' : formatINR(employee.salary)} />
+            <LineItem label="Daily rate" sub={`${employee.basis === 'fixed30' ? 'Fixed 30-day' : 'Calendar-day'} basis`} value={formatINR(b.daily)} />
+            <LineItem label="Attendance" sub={`${b.presentDays} present · ${b.halfDays} half · ${b.leaveDays} leave · ${b.absentDays} absent`} value={`${b.workedDays} d worked`} />
+            <LineItem label="Paid / free leave" sub={`${b.freeLeaveUsed} of ${b.freeLeaveAllowed} free this month`} value={`${b.freeLeaveUsed} d`} />
+            <LineItem label="Payable days" sub="worked + paid leave" value={`${b.payableDays} d`} />
+            <LineItem label="Gross earned" sub={`${formatINR(b.daily)} × ${b.payableDays} days`} value={formatINR(b.grossEarned)} />
             {b.advanceAdjustment > 0 && (
               <LineItem label="Advance adjustment" sub={`Remaining advance balance ${formatINR(advanceRemaining)}`} value={formatSignedINR(-b.advanceAdjustment)} tone="red" />
             )}
-            <LineItem label="Total deductions" value={b.deductionTotal > 0 ? formatSignedINR(-b.deductionTotal) : formatINR(0)} tone={b.deductionTotal > 0 ? 'red' : undefined} />
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 18px', marginTop: 18, background: 'var(--indigo-50)', border: '1px solid var(--indigo-100)', borderRadius: 'var(--radius-md)' }}>
             <div>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--indigo-600)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Net payable</div>
-              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>Gross {employee.salaryMissing ? '—' : formatINR(employee.salary)} − Deductions {formatINR(b.deductionTotal)}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>Gross earned {formatINR(b.grossEarned)}{b.advanceAdjustment > 0 ? ` − Advance ${formatINR(b.advanceAdjustment)}` : ''}</div>
             </div>
             <span style={{ fontSize: 26, fontWeight: 800, color: 'var(--indigo-700)', fontFamily: 'var(--font-mono)', letterSpacing: '-0.02em' }}>{formatINR(b.netSalary)}</span>
           </div>

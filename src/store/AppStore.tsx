@@ -261,6 +261,8 @@ interface AppContextValue {
   updatePaymentStatus: (id: string, paymentId: string, status: ConfirmationStatus) => void;
   setPayrollStatus: (id: string, status: PayrollStatus) => void;
   approveAllPending: () => number;
+  /** Re-freeze an employee's salary entry from current attendance (fixes stale runs). */
+  recalcSalaryFromAttendance: (id: string) => void;
 
   /* Leave */
   setLeaveStatus: (id: string, leaveId: string, status: 'approved' | 'rejected') => void;
@@ -521,7 +523,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     };
   };
   const buildSalaryEntry = (emp: Employee, status: SalaryStatus, paymentId?: string): SalaryEntry => {
-    const b = employeeBreakdown(emp);
+    // Freeze attendance-based values from the SAME grid the salary table uses.
+    const b = employeeBreakdown(emp, attendanceMarks[emp.id]);
     const id = `se-${CURRENT_MONTH.year}-${String(CURRENT_MONTH.month).padStart(2, '0')}-${emp.id}`;
     const prev = salaryEntries.find((s) => s.id === id);
     const now = new Date().toISOString();
@@ -531,9 +534,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       employeeId: emp.id,
       month: CURRENT_MONTH.month,
       year: CURRENT_MONTH.year,
-      grossPayable: emp.salaryMissing ? 0 : emp.salary,
-      workedDays: emp.worked,
-      leaveUsed: emp.leaveUsed,
+      grossPayable: emp.salaryMissing ? 0 : b.grossEarned,
+      workedDays: b.workedDays,
+      leaveUsed: b.leaveDays,
       freeLeaveUsed: b.freeLeaveUsed,
       deductionTotal: b.deductionTotal,
       advanceAdjustment: b.advanceAdjustment,
@@ -988,6 +991,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           });
         toast(`${targets.length} salaries approved`);
         return targets.length;
+      },
+      recalcSalaryFromAttendance: (id) => {
+        const emp = employees.find((e) => e.id === id);
+        if (!emp) return;
+        const b = employeeBreakdown(emp, attendanceMarks[emp.id]);
+        commitSalaryEntry(emp, salaryStatus(emp), employees);
+        pushAudit({ entity: 'Salary', target: `${emp.name} (${emp.id})`, field: 'Salary recalculated', oldValue: 'frozen run', newValue: `${b.workedDays}d · ₹${b.netSalary}` });
+        toast('Salary recalculated from attendance');
       },
 
       /* ---- Leave ---- */

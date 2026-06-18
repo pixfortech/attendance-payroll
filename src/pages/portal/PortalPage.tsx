@@ -33,7 +33,7 @@ const mono = { fontFamily: 'var(--font-mono)' as const };
 
 export function PortalPage() {
   const navigate = useNavigate();
-  const { employees, session, logout } = useAppStore();
+  const { employees, session, attendanceMarks, logout } = useAppStore();
   const isMobile = useIsMobile();
   const emp = employees.find((e) => e.id === session?.employeeId) ?? employees.find((e) => e.login === 'enabled') ?? employees[0];
   const [section, setSection] = useState<Section>('home');
@@ -91,7 +91,7 @@ export function PortalPage() {
         </nav>
       )}
 
-      {slip && <SalarySlip employee={emp} onClose={() => setSlip(false)} />}
+      {slip && <SalarySlip employee={emp} marks={attendanceMarks[emp.id]} onClose={() => setSlip(false)} />}
       {leaveOpen && <ApplyLeaveModal employee={emp} onClose={() => setLeaveOpen(false)} />}
     </div>
   );
@@ -111,8 +111,8 @@ function BreakdownRow({ label, value, sub, tone }: { label: string; value: strin
 }
 
 function HomeSection({ emp, onSlip, onGoLeave }: { emp: Employee; onSlip: () => void; onGoLeave: () => void }) {
-  const { notices, updatePaymentStatus, requestSalary } = useAppStore();
-  const b = employeeBreakdown(emp);
+  const { notices, updatePaymentStatus, requestSalary, attendanceMarks } = useAppStore();
+  const b = employeeBreakdown(emp, attendanceMarks[emp.id]);
   const advAdj = employeeAdvanceAdjustment(emp);
   const pending = emp.payments.filter((p) => p.status === 'pending');
   return (
@@ -242,7 +242,8 @@ function AttendanceSection({ emp }: { emp: Employee }) {
 }
 
 function LeaveSection({ emp, onRequest }: { emp: Employee; onRequest: () => void }) {
-  const b = employeeBreakdown(emp);
+  const { attendanceMarks } = useAppStore();
+  const b = employeeBreakdown(emp, attendanceMarks[emp.id]);
   const [status, setStatus] = useState('all');
   const leaves = emp.leaves.filter((l) => status === 'all' || l.status === status);
   return (
