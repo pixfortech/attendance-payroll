@@ -31,7 +31,7 @@ const CHIP: Record<Tone, [string, string]> = {
 };
 
 export function ReportsPage() {
-  const { employees, branches } = useAppStore();
+  const { employees, branches, tiffinLabels } = useAppStore();
   const toast = useToast();
   const [month, setMonth] = useState<string>(CURRENT_MONTH.label);
   const [branch, setBranch] = useState('');
@@ -57,7 +57,7 @@ export function ReportsPage() {
     ],
     'Tiffin / food allowance': () => [
       ['Employee', 'Branch', 'Tiffin days', 'Tiffin CTC'],
-      ...list.map((e) => [e.name, e.branch, e.tiffinDays, employeeTiffinTotal(e)]),
+      ...list.map((e) => [e.name, e.branch, e.tiffinDays, employeeTiffinTotal(e, tiffinLabels)]),
     ],
     'Paid leave report': () => [
       ['Employee', 'Leave used', 'Free allowed', 'Deductible days'],
@@ -82,7 +82,7 @@ export function ReportsPage() {
       ['Employees', list.length],
       ['Gross total', list.reduce((s, e) => s + e.salary, 0)],
       ['Total deductions', round2(list.reduce((s, e) => s + employeeBreakdown(e).totalDeductions, 0))],
-      ['Tiffin CTC total', list.reduce((s, e) => s + employeeTiffinTotal(e), 0)],
+      ['Tiffin CTC total', list.reduce((s, e) => s + employeeTiffinTotal(e, tiffinLabels), 0)],
       ['Net payable total', round2(list.reduce((s, e) => s + employeeBreakdown(e).finalPayable, 0))],
     ],
     'Cash / bank / UPI payment': () => {

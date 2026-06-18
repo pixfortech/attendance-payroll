@@ -4,7 +4,7 @@ import { employeeBreakdown, employeeAdvanceRemaining, salaryStatus } from '../..
 import { downloadPayslip } from '../../lib/payslip';
 import { CURRENT_MONTH } from '../../data';
 import { CONFIRMATION_META, SALARY_STATUS_META } from './statusMeta';
-import type { Employee } from '../../types';
+import type { Employee, TiffinLabel } from '../../types';
 import type { Mark } from '../../data/attendanceMarks';
 import logo from '../../assets/ganguram-logo.png';
 
@@ -37,8 +37,8 @@ function LineItem({
   );
 }
 
-export function SalarySlip({ employee, marks, onClose }: { employee: Employee; marks?: Mark[]; onClose: () => void }) {
-  const b = employeeBreakdown(employee, marks);
+export function SalarySlip({ employee, marks, tiffinLabels, onClose }: { employee: Employee; marks?: Mark[]; tiffinLabels?: TiffinLabel[]; onClose: () => void }) {
+  const b = employeeBreakdown(employee, marks, tiffinLabels);
   const status = SALARY_STATUS_META[salaryStatus(employee)];
   const advanceRemaining = employeeAdvanceRemaining(employee);
   const lastSalaryPayment = employee.payments.find((p) => p.type === 'Salary');

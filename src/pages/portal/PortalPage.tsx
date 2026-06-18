@@ -3,15 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { Avatar, BackButton, Badge, Button, Card, Icon, KV, Select, StatCard, type IconName } from '../../components/ui';
 import { SalarySlip } from '../../components/payroll/SalarySlip';
 import { ApplyLeaveModal } from '../../components/payroll/ApplyLeaveModal';
+import { AdvanceDetailModal } from '../../components/payroll/AdvanceDetailModal';
 import { NotificationBell } from '../../components/layout/NotificationBell';
 import { CONFIRMATION_META, PROOF_META } from '../../components/payroll/statusMeta';
 import { useAppStore } from '../../store/AppStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
-import { employeeBreakdown, employeeAdvanceAdjustment, employeeAdvanceRemaining, employeeOutstandingAdvance, employeeTiffinTotal } from '../../lib/payroll';
+import { employeeBreakdown, employeeAdvanceAdjustment, employeeAdvanceRemaining, employeeOutstandingAdvance, employeeTiffinLabels, employeeTiffinPerDay, employeeTiffinTotal } from '../../lib/payroll';
 import { PROOF_METHOD_LABEL } from '../../services/attendance';
 import { formatINR, formatINR0, formatSignedINR } from '../../services';
 import { CURRENT_MONTH } from '../../data';
-import type { ConfirmationStatus, Employee } from '../../types';
+import type { Advance, ConfirmationStatus, Employee } from '../../types';
 import logo from '../../assets/ganguram-logo.png';
 import gauri from '../../assets/gauri-mascot.png';
 
@@ -111,8 +112,8 @@ function BreakdownRow({ label, value, sub, tone }: { label: string; value: strin
 }
 
 function HomeSection({ emp, onSlip, onGoLeave }: { emp: Employee; onSlip: () => void; onGoLeave: () => void }) {
-  const { notices, updatePaymentStatus, requestSalary, attendanceMarks } = useAppStore();
-  const b = employeeBreakdown(emp, attendanceMarks[emp.id]);
+  const { notices, updatePaymentStatus, requestSalary, attendanceMarks, tiffinLabels } = useAppStore();
+  const b = employeeBreakdown(emp, attendanceMarks[emp.id], tiffinLabels);
   const advAdj = employeeAdvanceAdjustment(emp);
   const pending = emp.payments.filter((p) => p.status === 'pending');
   return (
@@ -131,7 +132,7 @@ function HomeSection({ emp, onSlip, onGoLeave }: { emp: Employee; onSlip: () => 
       <div className="gx-grid gx-grid-stats">
         <StatCard label="Worked days" value={emp.worked} suffix={`/ ${CURRENT_MONTH.workingDays}`} icon="calendar" tone="brand" />
         <StatCard label="Free leave left" value={b.leaveUnused} suffix="/ 4" icon="circleCheck" tone="green" />
-        <StatCard label="Tiffin (CTC)" value={formatINR0(employeeTiffinTotal(emp)).replace('₹', '')} prefix="₹" icon="utensils" tone="blue" />
+        <StatCard label="Tiffin (CTC)" value={formatINR0(employeeTiffinTotal(emp, tiffinLabels)).replace('₹', '')} prefix="₹" icon="utensils" tone="blue" />
         <StatCard label="Advance balance" value={formatINR0(employeeAdvanceRemaining(emp)).replace('₹', '')} prefix="₹" icon="banknote" tone="amber" />
       </div>
 
@@ -275,7 +276,9 @@ function LeaveSection({ emp, onRequest }: { emp: Employee; onRequest: () => void
 }
 
 function PaymentsSection({ emp, onSlip }: { emp: Employee; onSlip: () => void }) {
+  const { tiffinLabels } = useAppStore();
   const [status, setStatus] = useState<'all' | ConfirmationStatus>('all');
+  const [detailAdv, setDetailAdv] = useState<Advance | null>(null);
   const payments = emp.payments.filter((p) => status === 'all' || p.status === status);
   return (
     <>
@@ -308,20 +311,44 @@ function PaymentsSection({ emp, onSlip }: { emp: Employee; onSlip: () => void })
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {emp.advances.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No advances.</div>}
           {emp.advances.map((a) => (
-            <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 12px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+            <button key={a.id} type="button" onClick={() => setDetailAdv(a)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 12px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', background: 'var(--surface-card)', cursor: 'pointer', textAlign: 'left', width: '100%', fontFamily: 'var(--font-sans)' }}>
               <Icon name="banknote" size={16} color="var(--amber-600)" />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong)' }}>{formatINR0(a.amount)} · {a.date}</div>
                 <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{a.note}{a.plan ? ` · ${formatINR0(a.plan.monthlyAmount)}/mo × ${a.plan.months}` : ''}</div>
               </div>
               {a.cleared ? <Badge variant="confirmed" size="sm" dot>Cleared</Badge> : <Badge variant="pending" size="sm" dot>Outstanding</Badge>}
-            </div>
+              <Icon name="chevronRight" size={15} color="var(--text-subtle)" />
+            </button>
           ))}
         </div>
       </Card>
+      {detailAdv && <AdvanceDetailModal advance={detailAdv} employee={emp} onClose={() => setDetailAdv(null)} />}
       <Card title="Tiffin / food allowance" subtitle={`${CURRENT_MONTH.label}`}>
-        <KV label="Tiffin days this month" value={String(emp.tiffinDays)} icon="calendar" />
-        <KV label="Tiffin CTC payable" value={formatINR0(employeeTiffinTotal(emp))} mono icon="utensils" valueColor="var(--blue-600)" />
+        {emp.tiffinEnabled === false ? (
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', background: 'var(--surface-inset)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>Tiffin / food allowance is not enabled on your account.</div>
+        ) : (
+          <>
+            <KV label="Tiffin days this month" value={String(emp.tiffinDays)} icon="calendar" />
+            <KV label="Per day rate" value={formatINR0(employeeTiffinPerDay(emp, tiffinLabels))} mono icon="rupee" />
+            <KV label="Tiffin CTC payable" value={formatINR0(employeeTiffinTotal(emp, tiffinLabels))} mono icon="utensils" valueColor="var(--blue-600)" />
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 7 }}>Items</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                {employeeTiffinLabels(emp, tiffinLabels).map((t) => (
+                  <div key={t.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12.5, padding: '7px 10px', background: 'var(--surface-inset)', borderRadius: 'var(--radius-sm)' }}>
+                    <span style={{ color: 'var(--text-body)' }}>{t.label}</span>
+                    <span style={{ ...mono, fontWeight: 700, color: 'var(--text-strong)' }}>{formatINR0(t.amount)}/day</span>
+                  </div>
+                ))}
+                {employeeTiffinLabels(emp, tiffinLabels).length === 0 && <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>No tiffin items configured.</div>}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 11.5, color: 'var(--blue-700)', background: 'var(--blue-50)', border: '1px solid var(--blue-100)', borderRadius: 'var(--radius-sm)', padding: '9px 11px', marginTop: 10 }}>
+              <Icon name="info" size={13} style={{ marginTop: 1 }} /> Tiffin / food allowance is paid separately on top of your salary — it is not part of your net salary.
+            </div>
+          </>
+        )}
       </Card>
     </>
   );

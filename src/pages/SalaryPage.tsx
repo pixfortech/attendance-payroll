@@ -17,7 +17,7 @@ import type { Employee, SalaryStatus } from '../types';
 const mono = { fontFamily: 'var(--font-mono)' as const };
 
 export function SalaryPage() {
-  const { employees, branches, attendanceMarks, setPayrollStatus, addPayment, approveAllPending, salaryEntries, recalcSalaryFromAttendance, logAudit } = useAppStore();
+  const { employees, branches, attendanceMarks, tiffinLabels, setPayrollStatus, addPayment, approveAllPending, salaryEntries, recalcSalaryFromAttendance, logAudit } = useAppStore();
   const confirm = useConfirm();
   const toast = useToast();
   const [tab, setTab] = useState<'all' | 'pending' | 'approved' | 'paid'>('all');
@@ -27,7 +27,7 @@ export function SalaryPage() {
   const [adjustFor, setAdjustFor] = useState<Employee | null>(null);
 
   const onDownload = (r: Employee) => {
-    downloadPayslip(r, attendanceMarks[r.id]);
+    downloadPayslip(r, attendanceMarks[r.id], tiffinLabels);
     logAudit({ entity: 'Salary', target: `${r.name} (${r.id})`, field: 'Payslip downloaded', oldValue: '—', newValue: CURRENT_MONTH.label });
     toast(`Payslip downloaded for ${r.name}`);
   };
@@ -39,7 +39,7 @@ export function SalaryPage() {
   const marksFor = (id: string) => attendanceMarks[id] ?? Array.from({ length: CURRENT_MONTH.workingDays }, () => 'O' as Mark);
   const entryFor = (id: string) => salaryEntries.find((s) => s.employeeId === id && s.month === CURRENT_MONTH.month && s.year === CURRENT_MONTH.year);
   const figures = (r: Employee) => {
-    const b = employeeBreakdown(r, marksFor(r.id));
+    const b = employeeBreakdown(r, marksFor(r.id), tiffinLabels);
     return {
       gross: b.grossEarned, // daily × payable days (attendance-based), not full monthly
       worked: b.workedDays,
@@ -57,7 +57,7 @@ export function SalaryPage() {
   const staleFor = (r: Employee) => {
     const se = entryFor(r.id);
     if (!se) return false;
-    const b = employeeBreakdown(r, marksFor(r.id));
+    const b = employeeBreakdown(r, marksFor(r.id), tiffinLabels);
     return Math.abs((se.netPayable ?? 0) - b.netSalary) > 0.01 || Math.abs((se.workedDays ?? 0) - b.workedDays) > 0.001;
   };
   const inTab = (e: Employee) => {
@@ -208,11 +208,11 @@ export function SalaryPage() {
         />
       </Card>
 
-      {slip && <SalarySlip employee={slip} marks={marksFor(slip.id)} onClose={() => setSlip(null)} />}
+      {slip && <SalarySlip employee={slip} marks={marksFor(slip.id)} tiffinLabels={tiffinLabels} onClose={() => setSlip(null)} />}
       {payFor && (
         <RecordPaymentModal
           defaultType="Salary"
-          defaultAmount={String(employeeBreakdown(payFor, marksFor(payFor.id)).netSalary)}
+          defaultAmount={String(employeeBreakdown(payFor, marksFor(payFor.id), tiffinLabels).netSalary)}
           onClose={() => setPayFor(null)}
           onSave={(p) => {
             addPayment(payFor.id, p);

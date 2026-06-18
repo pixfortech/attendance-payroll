@@ -25,17 +25,18 @@ import {
 } from '../components/ui';
 import { RecordAdvanceModal } from '../components/payroll/RecordAdvanceModal';
 import { AdvanceAdjustModal } from '../components/payroll/AdvanceAdjustModal';
+import { AdvanceDetailModal } from '../components/payroll/AdvanceDetailModal';
 import { RecordPaymentModal } from '../components/payroll/RecordPaymentModal';
 import { EmployeeFormModal } from '../components/payroll/EmployeeFormModal';
 import { CONFIRMATION_META } from '../components/payroll/statusMeta';
 import { useAppStore } from '../store/AppStore';
 import type { DocumentKind, PortalRole, TiffinLabel } from '../types';
-import { employeeBreakdown, employeeDaysWorked, employeeOutstandingAdvance, employeeTenureMonths, employeeTiffinTotal } from '../lib/payroll';
+import { employeeBreakdown, employeeDaysWorked, employeeOutstandingAdvance, employeeTenureMonths, employeeTiffinPerDay, employeeTiffinTotal } from '../lib/payroll';
 import { isAccountLocked, managerNeedsBranch, portalAccessOf, PORTAL_STATUS_META } from '../lib/portalAccess';
 import { validatePin } from '../lib/pinAuth';
 import { activeBranches } from '../lib/branches';
 import { formatDMY, isFutureISO, todayISO } from '../lib/dates';
-import { evaluateEligibility, formatINR, formatINR0, tiffinPerDay } from '../services';
+import { evaluateEligibility, formatINR, formatINR0 } from '../services';
 import { CURRENT_MONTH } from '../data';
 import type { Employee } from '../types';
 
@@ -375,6 +376,7 @@ function SalaryLeavePanel({ emp }: { emp: Employee }) {
 function AdvancePanel({ emp, onAdd }: { emp: Employee; onAdd: () => void }) {
   const { updateAdvance } = useAppStore();
   const [editAdv, setEditAdv] = useState<Employee['advances'][number] | null>(null);
+  const [detailAdv, setDetailAdv] = useState<Employee['advances'][number] | null>(null);
   const [adjustOpen, setAdjustOpen] = useState(false);
   const outstanding = employeeOutstandingAdvance(emp);
 
@@ -385,7 +387,17 @@ function AdvancePanel({ emp, onAdd }: { emp: Employee; onAdd: () => void }) {
     { key: 'ref', header: 'Reference', render: (a) => <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--indigo-600)', fontSize: 12 }}>{a.ref}</span> },
     { key: 'note', header: 'Note', render: (a) => <span style={{ color: 'var(--text-muted)' }}>{a.note}</span> },
     { key: 'status', header: 'Status', render: (a) => (a.cleared ? <Badge variant="confirmed" size="sm" dot>Cleared</Badge> : <Badge variant="pending" size="sm" dot>Outstanding</Badge>) },
-    { key: 'edit', header: '', align: 'right', render: (a) => <IconButton icon="pencil" label="Edit advance" size="sm" onClick={() => setEditAdv(a)} /> },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      render: (a) => (
+        <span style={{ display: 'inline-flex', gap: 4, justifyContent: 'flex-end' }}>
+          <IconButton icon="eye" label="View detail & schedule" size="sm" onClick={(e) => { e.stopPropagation(); setDetailAdv(a); }} />
+          <IconButton icon="pencil" label="Edit advance" size="sm" onClick={(e) => { e.stopPropagation(); setEditAdv(a); }} />
+        </span>
+      ),
+    },
   ];
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16, alignItems: 'start' }}>
@@ -398,9 +410,10 @@ function AdvancePanel({ emp, onAdd }: { emp: Employee; onAdd: () => void }) {
           <Button variant="secondary" full iconLeft={<Icon name="calculator" size={16} />} disabled={outstanding === 0} onClick={() => setAdjustOpen(true)}>Adjust against salary</Button>
         </div>
       </Card>
-      <Card title="Advance ledger" subtitle="Employee-wise advance history" padding="0">
-        <ResponsiveTable columns={columns} rows={emp.advances} rowKey={(a) => a.id} minWidth={620} emptyText="No advances recorded." />
+      <Card title="Advance ledger" subtitle="Tap a row for detail & repayment schedule" padding="0">
+        <ResponsiveTable columns={columns} rows={emp.advances} rowKey={(a) => a.id} minWidth={640} emptyText="No advances recorded." onRowClick={(a) => setDetailAdv(a)} />
       </Card>
+      {detailAdv && <AdvanceDetailModal advance={detailAdv} employee={emp} onClose={() => setDetailAdv(null)} />}
       {editAdv && (
         <RecordAdvanceModal
           initial={editAdv}
@@ -454,11 +467,13 @@ function PaymentsPanel({ emp, onAdd }: { emp: Employee; onAdd: () => void }) {
 
 /* ---------- Tiffin ---------- */
 function TiffinPanel({ emp }: { emp: Employee }) {
-  const { addEmployeeTiffinLabel, updateEmployeeTiffinLabel, removeEmployeeTiffinLabel, setHalfTiffin } = useAppStore();
+  const { addEmployeeTiffinLabel, updateEmployeeTiffinLabel, removeEmployeeTiffinLabel, setHalfTiffin, setTiffinEnabled, tiffinLabels } = useAppStore();
   const confirm = useConfirm();
   const [labelModal, setLabelModal] = useState<{ mode: 'add' | 'edit'; label?: TiffinLabel } | null>(null);
-  const perDay = tiffinPerDay(emp.tiffin);
-  const total = employeeTiffinTotal(emp);
+  const enabled = emp.tiffinEnabled !== false;
+  const perDay = employeeTiffinPerDay(emp, tiffinLabels);
+  const total = employeeTiffinTotal(emp, tiffinLabels);
+  const usingGlobal = emp.tiffin.length === 0 && enabled;
 
   const removeLabel = async (t: TiffinLabel) => {
     const ok = await confirm({ title: 'Remove tiffin label?', message: `Remove “${t.label}” (${formatINR0(t.amount)}/day) from ${emp.name}'s tiffin setup.`, confirmLabel: 'Remove', tone: 'danger', icon: 'trash' });
@@ -469,6 +484,12 @@ function TiffinPanel({ emp }: { emp: Employee }) {
     <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 16, alignItems: 'start' }}>
       <Card title="Tiffin / food allowance setup" subtitle="Company-paid CTC — never a deduction" action={<Button variant="tonal" size="sm" iconLeft={<Icon name="plus" size={15} />} onClick={() => setLabelModal({ mode: 'add' })}>Add label</Button>}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <Switch checked={enabled} onChange={(v) => setTiffinEnabled(emp.id, v)} label="Tiffin enabled for this employee" description="When off, tiffin CTC is ₹0 for this person." />
+          {usingGlobal && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, color: 'var(--blue-700)', background: 'var(--blue-50)', border: '1px solid var(--blue-100)', borderRadius: 'var(--radius-sm)', padding: '9px 11px' }}>
+              <Icon name="info" size={14} style={{ marginTop: 1 }} /> Using the company default tiffin labels (₹{perDay}/day). Add labels below to customise per-employee.
+            </div>
+          )}
           {emp.tiffin.map((t) => (
             <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'var(--surface-inset)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
               <span style={{ width: 36, height: 36, borderRadius: 'var(--radius-md)', background: 'var(--blue-50)', color: 'var(--blue-600)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>

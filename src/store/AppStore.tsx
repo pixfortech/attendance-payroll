@@ -34,8 +34,8 @@ import { evaluateEligibility } from '../services/eligibility';
 import { allocatePaidLeave } from '../services/leave';
 import { evaluateProof } from '../services/attendance';
 import { advanceRemaining } from '../services/advance';
-import { tiffinPerDay } from '../services/tiffin';
-import { employeeBreakdown, isActiveEmployee, salaryStatus } from '../lib/payroll';
+import { computeTiffinDays } from '../services/tiffin';
+import { employeeBreakdown, employeeTiffinPerDay, isActiveEmployee, salaryStatus } from '../lib/payroll';
 import { loginStatusOf, portalAccessOf } from '../lib/portalAccess';
 import { evaluateCapture } from '../lib/attendanceCapture';
 import { enqueuePending, pendingId, syncPending } from '../lib/attendanceSync';
@@ -244,6 +244,8 @@ interface AppContextValue {
   /** Admin portal-access controls (enable/disable/role/branch/reset/unlock/…). */
   updatePortalAccess: (id: string, changes: Partial<PortalAccess>, meta: { action: string; reason?: string; notify?: { title: string; message: string } }) => void;
   setHalfTiffin: (id: string, enabled: boolean) => void;
+  /** Enable/disable tiffin CTC for an employee. */
+  setTiffinEnabled: (id: string, enabled: boolean) => void;
   addDocument: (id: string, doc: Omit<EmployeeDocument, 'id'>) => void;
   addEmployeeTiffinLabel: (id: string, label: Omit<TiffinLabel, 'id'>) => void;
   updateEmployeeTiffinLabel: (id: string, labelId: string, patch: Partial<TiffinLabel>) => void;
@@ -294,7 +296,15 @@ interface AppContextValue {
   updateTiffinLabel: (labelId: string, patch: Partial<TiffinLabel>) => void;
   removeTiffinLabel: (labelId: string) => void;
   markTiffinDay: () => number;
+  /** Bulk tiffin action over a set of employees (enable/disable, +/- a day, reset). */
+  bulkTiffin: (employeeIds: string[], action: BulkTiffinAction) => number;
+  /** Recompute every active employee's tiffin days from their attendance marks
+   *  (present = 1, half = 0.5 when eligible; absent/leave/off earn none). */
+  autoMarkTiffinFromAttendance: () => { affected: number; totalDays: number };
 }
+
+export type BulkTiffinAction = 'enable' | 'disable' | 'addDay' | 'removeDay' | 'reset';
+const BULK_TIFFIN_LABEL: Record<BulkTiffinAction, string> = { enable: 'enabled', disable: 'disabled', addDay: '+1 day', removeDay: '−1 day', reset: 'days reset' };
 
 const AppContext = createContext<AppContextValue | null>(null);
 
@@ -524,7 +534,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   };
   const buildSalaryEntry = (emp: Employee, status: SalaryStatus, paymentId?: string): SalaryEntry => {
     // Freeze attendance-based values from the SAME grid the salary table uses.
-    const b = employeeBreakdown(emp, attendanceMarks[emp.id]);
+    const b = employeeBreakdown(emp, attendanceMarks[emp.id], tiffinLabels);
     const id = `se-${CURRENT_MONTH.year}-${String(CURRENT_MONTH.month).padStart(2, '0')}-${emp.id}`;
     const prev = salaryEntries.find((s) => s.id === id);
     const now = new Date().toISOString();
@@ -842,6 +852,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       },
 
       setHalfTiffin: (id, enabled) => updateEmployee(id, (e) => ({ ...e, halfTiffin: enabled })),
+      setTiffinEnabled: (id, enabled) => {
+        const emp = employees.find((e) => e.id === id);
+        updateEmployee(id, (e) => ({ ...e, tiffinEnabled: enabled }));
+        if (emp) {
+          persistEmployee({ ...emp, tiffinEnabled: enabled });
+          pushAudit({ entity: 'Employee', target: `${emp.name} (${emp.id})`, field: 'Tiffin enabled', oldValue: String(emp.tiffinEnabled !== false), newValue: String(enabled) });
+        }
+        toast(enabled ? 'Tiffin enabled' : 'Tiffin disabled');
+      },
 
       addDocument: (id, doc) => {
         updateEmployee(id, (e) => ({ ...e, documents: [...e.documents, { ...doc, id: uid('doc') }] }));
@@ -995,7 +1014,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       recalcSalaryFromAttendance: (id) => {
         const emp = employees.find((e) => e.id === id);
         if (!emp) return;
-        const b = employeeBreakdown(emp, attendanceMarks[emp.id]);
+        const b = employeeBreakdown(emp, attendanceMarks[emp.id], tiffinLabels);
         commitSalaryEntry(emp, salaryStatus(emp), employees);
         pushAudit({ entity: 'Salary', target: `${emp.name} (${emp.id})`, field: 'Salary recalculated', oldValue: 'frozen run', newValue: `${b.workedDays}d · ₹${b.netSalary}` });
         toast('Salary recalculated from attendance');
@@ -1168,9 +1187,58 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         const updatedById = new Map(activeList.map((e) => [e.id, { ...e, tiffinDays: e.tiffinDays + 1 }]));
         setEmployees((prev) => prev.map((e) => updatedById.get(e.id) ?? e));
         updatedById.forEach((e) => persistEmployee(e));
-        op(() => saveTiffinEntries(activeList.map((e) => ({ employeeId: e.id, branchId: branchIdFor(e), label: 'Tiffin', amount: tiffinPerDay(e.tiffin), givenBy: sessionLabel(session) }))));
+        op(() => saveTiffinEntries(activeList.map((e) => ({ employeeId: e.id, branchId: branchIdFor(e), label: 'Tiffin', amount: employeeTiffinPerDay(e, tiffinLabels), givenBy: sessionLabel(session) }))));
         toast(`Tiffin marked for ${activeList.length} staff today`);
         return activeList.length;
+      },
+      bulkTiffin: (employeeIds, action) => {
+        const idSet = new Set(employeeIds);
+        const targets = employees.filter((e) => idSet.has(e.id));
+        if (targets.length === 0) {
+          toast('No employees selected');
+          return 0;
+        }
+        const apply = (e: Employee): Employee => {
+          switch (action) {
+            case 'enable': return { ...e, tiffinEnabled: true };
+            case 'disable': return { ...e, tiffinEnabled: false };
+            case 'addDay': return { ...e, tiffinDays: e.tiffinDays + 1 };
+            case 'removeDay': return { ...e, tiffinDays: Math.max(0, e.tiffinDays - 1) };
+            case 'reset': return { ...e, tiffinDays: 0 };
+            default: return e;
+          }
+        };
+        const updatedById = new Map(targets.map((e) => [e.id, apply(e)]));
+        setEmployees((prev) => prev.map((e) => updatedById.get(e.id) ?? e));
+        updatedById.forEach((e) => persistEmployee(e));
+        pushAudit({ entity: 'Tiffin', target: 'Bulk', field: 'Bulk tiffin', oldValue: '—', newValue: `${targets.length} staff · ${BULK_TIFFIN_LABEL[action]}` });
+        toast(`Tiffin ${BULK_TIFFIN_LABEL[action]} for ${targets.length} staff`);
+        return targets.length;
+      },
+      autoMarkTiffinFromAttendance: () => {
+        // Tiffin follows attendance: present → 1 tiffin day, half → 0.5 (if the
+        // employee is half-day eligible), absent/leave/off → none. Disabled-tiffin
+        // employees keep ₹0 (their per-day rate is 0) so we skip recomputation.
+        const activeList = employees.filter((e) => e.status === 'active' && e.tiffinEnabled !== false);
+        if (activeList.length === 0) {
+          toast('No active staff');
+          return { affected: 0, totalDays: 0 };
+        }
+        let totalDays = 0;
+        const updatedById = new Map(
+          activeList.map((e) => {
+            const marks = attendanceMarks[e.id];
+            const f = marks ? figuresFromMarks(marks) : { daysPresent: e.daysPresent, daysHalf: e.daysHalf };
+            const days = computeTiffinDays({ daysPresent: f.daysPresent, daysHalf: f.daysHalf, halfTiffinEligible: e.halfTiffin });
+            totalDays += days;
+            return [e.id, { ...e, tiffinDays: days }] as const;
+          }),
+        );
+        setEmployees((prev) => prev.map((e) => updatedById.get(e.id) ?? e));
+        updatedById.forEach((e) => persistEmployee(e));
+        pushAudit({ entity: 'Tiffin', target: 'Bulk', field: 'Auto tiffin from attendance', oldValue: '—', newValue: `${activeList.length} staff · ${totalDays} day(s)` });
+        toast(`Tiffin auto-marked from attendance for ${activeList.length} staff`);
+        return { affected: activeList.length, totalDays };
       },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps

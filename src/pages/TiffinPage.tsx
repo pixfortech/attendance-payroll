@@ -1,20 +1,22 @@
-import { useState } from 'react';
-import { Badge, Button, Card, Icon, IconButton, Input, Modal, ResponsiveTable, StatCard, Switch, useConfirm, type Column } from '../components/ui';
-import { useAppStore } from '../store/AppStore';
-import { employeeTiffinTotal } from '../lib/payroll';
+import { useMemo, useState } from 'react';
+import { Badge, Button, Card, Icon, IconButton, Input, Modal, ResponsiveTable, Select, StatCard, Switch, useConfirm, type Column } from '../components/ui';
+import { useAppStore, type BulkTiffinAction } from '../store/AppStore';
+import { employeeTiffinPerDay, employeeTiffinTotal, isActiveEmployee } from '../lib/payroll';
+import { branchFilterOptions, employeeInBranch } from '../lib/branches';
 import { downloadCsv } from '../lib/download';
 import { formatINR0, tiffinPerDay } from '../services';
 import { CURRENT_MONTH } from '../data';
-import type { Employee, TiffinLabel } from '../types';
+import type { Branch, Employee, TiffinLabel } from '../types';
 
 const mono = { fontFamily: 'var(--font-mono)' as const };
 
 export function TiffinPage() {
-  const { employees, tiffinLabels, addTiffinLabel, updateTiffinLabel, removeTiffinLabel, markTiffinDay } = useAppStore();
+  const { employees, branches, tiffinLabels, addTiffinLabel, updateTiffinLabel, removeTiffinLabel, markTiffinDay, bulkTiffin, autoMarkTiffinFromAttendance } = useAppStore();
   const confirm = useConfirm();
   const [labelModal, setLabelModal] = useState<{ mode: 'add' | 'edit'; label?: TiffinLabel } | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
-  const totalTiffin = employees.reduce((s, e) => s + employeeTiffinTotal(e), 0);
+  const totalTiffin = employees.reduce((s, e) => s + employeeTiffinTotal(e, tiffinLabels), 0);
   const totalDays = employees.reduce((s, e) => s + e.tiffinDays, 0);
   const perDay = tiffinPerDay(tiffinLabels);
 
@@ -23,10 +25,22 @@ export function TiffinPage() {
     if (ok) removeTiffinLabel(t.id);
   };
 
+  const autoMark = async () => {
+    const eligible = employees.filter((e) => e.status === 'active' && e.tiffinEnabled !== false).length;
+    const ok = await confirm({
+      title: 'Auto-mark tiffin from attendance?',
+      message: `Tiffin days for ${eligible} active employee${eligible === 1 ? '' : 's'} will be recomputed from this month's attendance — present = 1 day, half-day = 0.5 (if eligible), absent / leave / off = none. This replaces their current tiffin-day counts and never changes net salary.`,
+      confirmLabel: 'Auto-mark tiffin',
+      tone: 'primary',
+      icon: 'utensils',
+    });
+    if (ok) autoMarkTiffinFromAttendance();
+  };
+
   const exportCsv = () =>
     downloadCsv(`tiffin-${CURRENT_MONTH.short}.csv`, [
       ['Employee', 'Branch', 'Days', 'Per day', 'Tiffin CTC'],
-      ...employees.map((e) => [e.name, e.branch, e.tiffinDays, tiffinPerDay(e.tiffin), employeeTiffinTotal(e)]),
+      ...employees.map((e) => [e.name, e.branch, e.tiffinDays, employeeTiffinPerDay(e, tiffinLabels), employeeTiffinTotal(e, tiffinLabels)]),
       ['Total', '', '', '', totalTiffin],
     ]);
 
@@ -34,8 +48,8 @@ export function TiffinPage() {
     { key: 'emp', header: 'Employee', render: (e) => <span style={{ fontWeight: 600, color: 'var(--text-strong)' }}>{e.name}</span> },
     { key: 'branch', header: 'Branch', render: (e) => <span style={{ color: 'var(--text-muted)' }}>{e.branch}</span> },
     { key: 'days', header: 'Days', align: 'right', render: (e) => <span style={mono}>{e.tiffinDays}</span> },
-    { key: 'perday', header: 'Per day', align: 'right', render: (e) => <span style={{ ...mono, color: 'var(--text-muted)' }}>{formatINR0(tiffinPerDay(e.tiffin))}</span> },
-    { key: 'ctc', header: 'Tiffin CTC', align: 'right', render: (e) => <span style={{ ...mono, fontWeight: 700, color: 'var(--blue-600)' }}>{formatINR0(employeeTiffinTotal(e))}</span> },
+    { key: 'perday', header: 'Per day', align: 'right', render: (e) => <span style={{ ...mono, color: 'var(--text-muted)' }}>{formatINR0(employeeTiffinPerDay(e, tiffinLabels))}</span> },
+    { key: 'ctc', header: 'Tiffin CTC', align: 'right', render: (e) => <span style={{ ...mono, fontWeight: 700, color: 'var(--blue-600)' }}>{formatINR0(employeeTiffinTotal(e, tiffinLabels))}</span> },
   ];
 
   return (
@@ -67,6 +81,8 @@ export function TiffinPage() {
             </div>
             <Switch checked label="Half-day tiffin eligible (default)" description="New employees inherit this; configurable per employee" />
             <Button variant="secondary" full iconLeft={<Icon name="utensils" size={16} />} onClick={() => markTiffinDay()}>Mark today's tiffin given</Button>
+            <Button variant="secondary" full iconLeft={<Icon name="calendar" size={16} />} onClick={autoMark}>Auto-mark tiffin from attendance</Button>
+            <Button variant="tonal" full iconLeft={<Icon name="users" size={16} />} onClick={() => setBulkOpen(true)}>Bulk tiffin (enable / days)</Button>
             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface-inset)', borderRadius: 'var(--radius-sm)', padding: '9px 11px' }}>
               <Icon name="info" size={14} color="var(--indigo-500)" style={{ marginTop: 1 }} />
               Tiffin is never a deduction. No tiffin is paid on paid-leave days.
@@ -94,7 +110,57 @@ export function TiffinPage() {
           }}
         />
       )}
+
+      {bulkOpen && (
+        <BulkTiffinModal
+          employees={employees}
+          branches={branches}
+          onClose={() => setBulkOpen(false)}
+          onApply={(ids, action) => { bulkTiffin(ids, action); setBulkOpen(false); }}
+        />
+      )}
     </div>
+  );
+}
+
+const BULK_ACTIONS: { value: BulkTiffinAction; label: string }[] = [
+  { value: 'enable', label: 'Enable tiffin' },
+  { value: 'disable', label: 'Disable tiffin' },
+  { value: 'addDay', label: 'Add 1 tiffin day' },
+  { value: 'removeDay', label: 'Remove 1 tiffin day' },
+  { value: 'reset', label: 'Reset tiffin days to 0' },
+];
+
+function BulkTiffinModal({ employees, branches, onClose, onApply }: { employees: Employee[]; branches: Branch[]; onClose: () => void; onApply: (ids: string[], action: BulkTiffinAction) => void }) {
+  const [branchCode, setBranchCode] = useState('');
+  const [action, setAction] = useState<BulkTiffinAction>('enable');
+  const targets = useMemo(
+    () => employees.filter((e) => isActiveEmployee(e) && employeeInBranch(e, branchCode, branches)),
+    [employees, branchCode, branches],
+  );
+  return (
+    <Modal
+      icon="users"
+      title="Bulk tiffin"
+      subtitle="Apply a tiffin change to many employees at once"
+      onClose={onClose}
+      width={460}
+      footer={
+        <>
+          <Button variant="ghost" full onClick={onClose}>Cancel</Button>
+          <Button variant="primary" full disabled={targets.length === 0} onClick={() => onApply(targets.map((e) => e.id), action)}>Apply to {targets.length}</Button>
+        </>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Select label="Branch" value={branchCode} onChange={(e) => setBranchCode(e.target.value)} options={branchFilterOptions(branches)} />
+        <Select label="Action" value={action} onChange={(e) => setAction(e.target.value as BulkTiffinAction)} options={BULK_ACTIONS} />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface-inset)', borderRadius: 'var(--radius-sm)', padding: '9px 11px' }}>
+          <Icon name="info" size={14} color="var(--indigo-500)" style={{ marginTop: 1 }} />
+          {targets.length} active employee{targets.length === 1 ? '' : 's'} will be affected. Tiffin is company-paid CTC and never changes net salary.
+        </div>
+      </div>
+    </Modal>
   );
 }
 

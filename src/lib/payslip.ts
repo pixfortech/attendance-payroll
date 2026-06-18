@@ -5,7 +5,7 @@
    + payroll figures (never blank). Downloaded as a self-contained .html file so
    it works without a PDF library; the user can print → Save as PDF.
    ============================================================ */
-import type { Employee } from '../types';
+import type { Employee, TiffinLabel } from '../types';
 import type { Mark } from '../data/attendanceMarks';
 import { CURRENT_MONTH } from '../data/month';
 import { employeeAdvanceRemaining, employeeBreakdown, salaryStatus } from './payroll';
@@ -20,8 +20,8 @@ function esc(s: string): string {
 
 /** Build a complete, filled payslip HTML document for one employee/month.
  *  Pass the month's attendance `marks` so figures match the salary table. */
-export function buildPayslipHtml(employee: Employee, marks?: Mark[]): string {
-  const b = employeeBreakdown(employee, marks);
+export function buildPayslipHtml(employee: Employee, marks?: Mark[], tiffinLabels?: TiffinLabel[]): string {
+  const b = employeeBreakdown(employee, marks, tiffinLabels);
   const adjusted = b.advanceAdjustment;
   const remaining = employeeAdvanceRemaining(employee);
   const status = salaryStatus(employee);
@@ -75,9 +75,9 @@ export function buildPayslipHtml(employee: Employee, marks?: Mark[]): string {
 }
 
 /** Download the payslip as a self-contained .html file. */
-export function downloadPayslip(employee: Employee, marks?: Mark[]): void {
+export function downloadPayslip(employee: Employee, marks?: Mark[], tiffinLabels?: TiffinLabel[]): void {
   if (typeof document === 'undefined') return;
-  const blob = new Blob([buildPayslipHtml(employee, marks)], { type: 'text/html;charset=utf-8' });
+  const blob = new Blob([buildPayslipHtml(employee, marks, tiffinLabels)], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

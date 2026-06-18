@@ -172,6 +172,8 @@ export interface Employee {
   halfTiffin: boolean;
   tiffinDays: number;
   tiffin: TiffinLabel[];
+  /** Whether tiffin/food allowance applies to this employee (default true). */
+  tiffinEnabled?: boolean;
 
   /* Extra payroll inputs */
   overtimeHours: number;

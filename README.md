@@ -119,12 +119,29 @@ Employees request leave from their portal; admin/manager approves or rejects. Pa
 
 ## Tiffin / food allowance logic
 
-- Tiffin is **never a deduction**. It is a **separate company-paid CTC** amount paid **on top of** salary.
+- Tiffin is **never a deduction**. It is a **separate company-paid CTC** amount paid **on top of** salary — it **never increases or reduces net salary payable**.
 - It is taken **daily** by employees at their respective branches.
 - Admin defines **custom labels and amounts**, e.g. *Breakfast ₹60* and *Lunch / Dinner ₹100*. Amounts are fully variable and customisable.
 - Tiffin is **separately trackable and reportable**.
 - **No tiffin** is paid on **paid-leave days**.
 - **Half-day tiffin eligibility** is configurable per employee.
+
+### Per-day rate resolution (single shared source)
+
+Every view (Tiffin page, Salary table, payslip, dashboard, reports and the employee portal) computes tiffin through one shared helper in `src/lib/payroll.ts`, so the figures always agree:
+
+1. **Per-employee labels** — if the employee has their own tiffin labels, their sum is the per-day rate (overrides the company defaults).
+2. **Company-default labels** — if the employee has no labels of their own, the **active global labels** apply (so e.g. *Breakfast ₹60 + Lunch/Dinner ₹100 = ₹160/day* still flows through for imported staff). This fallback fixes the bug where tiffin showed **₹0** despite global labels existing.
+3. **Disabled** — when *tiffin enabled* is turned **off** for an employee (`tiffinEnabled === false`), their per-day rate is **₹0** regardless of labels.
+
+`Tiffin CTC = per-day rate × tiffin days`. Tiffin days come from manual marking, **bulk tiffin**, or **auto-mark from attendance** (present = 1 day, half-day = 0.5 when eligible; absent / leave / off earn none).
+
+### Admin controls
+
+- **Per employee** (Employee Detail → Tiffin): enable/disable tiffin, add/edit/remove labels with per-label amounts, half-day eligibility, live per-day rate, and a note when the company defaults are in use.
+- **Bulk** (Tiffin page → *Bulk tiffin*): scope by branch (or all), then enable / disable / add a day / remove a day / reset days. Every bulk change is written to the **audit log**.
+- **Auto-mark from attendance** (Tiffin page): recompute every active employee's tiffin days from the month's attendance, with a confirmation summary.
+- **Employee portal**: each employee sees their own tiffin days, per-day rate, item labels and total, with a clear *“paid separately on top of salary — not part of net”* note. Employees only ever see their own data.
 
 ---
 
@@ -174,6 +191,10 @@ Each employee has an **advance ledger**. Admin can record advances with:
 - Optional **image / PDF upload**
 - **Adjustment status** against salary
 - **Remaining advance balance** (outstanding, recoverable against upcoming salary)
+
+### Advance detail &amp; repayment schedule
+
+Clicking any advance — in the **admin** *Employee Detail → Advance* ledger or in the **employee portal** *Advance history* — opens a shared **detail modal** (`src/components/payroll/AdvanceDetailModal.tsx`) showing the amount, date, method, reason/reference, repayment terms (₹/month × months), expected clearing month, **total adjusted**, **remaining balance** and status (*Active · Partially adjusted · Cleared*), followed by the month-by-month **repayment schedule** (each row: month, amount recovered, balance after, applied/scheduled). Remaining is always `amount − adjustments`; a **cleared** advance reads **₹0**. The portal scopes strictly to the signed-in employee, so one employee can never see another's advance.
 
 ---
 

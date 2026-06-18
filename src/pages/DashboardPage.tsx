@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { Avatar, Badge, Button, Card, Icon, ProgressBar, ResponsiveTable, StatCard, type Column } from '../components/ui';
 import { SALARY_STATUS_META } from '../components/payroll/statusMeta';
 import { useAppStore } from '../store/AppStore';
-import { employeeBreakdown, isActiveEmployee, salaryStatus } from '../lib/payroll';
+import { employeeBreakdown, employeeTiffinTotal, isActiveEmployee, salaryStatus } from '../lib/payroll';
 import { formatINR0, formatNumberIN, round2 } from '../services';
 import { CURRENT_MONTH } from '../data';
 import type { Branch } from '../types';
@@ -13,7 +13,7 @@ function EmptyHint({ children }: { children: React.ReactNode }) {
 
 export function DashboardPage() {
   const navigate = useNavigate();
-  const { employees, branches, checkins, pendingSync } = useAppStore();
+  const { employees, branches, checkins, pendingSync, tiffinLabels } = useAppStore();
 
   const active = employees.filter(isActiveEmployee);
   const activeBranches = branches.filter((b) => !b.archived && b.status === 'active');
@@ -23,7 +23,7 @@ export function DashboardPage() {
   const reviewToday = checkins.filter((c) => (c.verificationStatus ?? (c.approved ? 'verified' : 'needs_review')) === 'needs_review').length;
   const offlinePending = pendingSync.length;
   const netPayable = round2(active.reduce((s, e) => s + employeeBreakdown(e).netSalary, 0));
-  const tiffinCTC = round2(active.reduce((s, e) => s + employeeBreakdown(e).tiffinTotal, 0));
+  const tiffinCTC = round2(active.reduce((s, e) => s + employeeTiffinTotal(e, tiffinLabels), 0));
   const pending = active.filter((e) => ['pending', 'requested'].includes(salaryStatus(e)));
   const approvedCount = active.filter((e) => e.payrollStatus === 'approved').length;
   const paidCount = active.filter((e) => e.payrollStatus === 'paid').length;

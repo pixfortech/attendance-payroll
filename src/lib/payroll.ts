@@ -7,15 +7,28 @@
    helpers rather than re-deriving payroll figures inline.
    ============================================================ */
 
-import type { Employee, SalaryStatus } from '../types';
+import type { Employee, SalaryStatus, TiffinLabel } from '../types';
 import type { Mark } from '../data/attendanceMarks';
 import { daysInclusive, monthsBetween, parseDate, toISO, todayISO } from './dates';
 import { computeSalary, type SalaryResult } from './salaryCalc';
-import { tiffinTotal, buildVariableScope, outstandingAdvance } from '../services';
+import { tiffinPerDay, buildVariableScope, outstandingAdvance } from '../services';
 
-/** Total tiffin CTC payable for an employee this month. */
-export function employeeTiffinTotal(employee: Employee): number {
-  return tiffinTotal(employee.tiffin, employee.tiffinDays);
+/** Effective tiffin labels for an employee: their own labels, else the active
+ *  GLOBAL labels (so imported employees with no per-person labels still get
+ *  the company's standard tiffin). */
+export function employeeTiffinLabels(employee: Employee, globalLabels: TiffinLabel[] = []): TiffinLabel[] {
+  return employee.tiffin.length > 0 ? employee.tiffin : globalLabels;
+}
+
+/** Per-day tiffin rate for an employee (₹0 when tiffin is disabled for them). */
+export function employeeTiffinPerDay(employee: Employee, globalLabels: TiffinLabel[] = []): number {
+  if (employee.tiffinEnabled === false) return 0;
+  return tiffinPerDay(employeeTiffinLabels(employee, globalLabels));
+}
+
+/** Total tiffin CTC payable for an employee this month (per-day × tiffin days). */
+export function employeeTiffinTotal(employee: Employee, globalLabels: TiffinLabel[] = []): number {
+  return employeeTiffinPerDay(employee, globalLabels) * employee.tiffinDays;
 }
 
 /** Advance recovered from this month's salary. Prefers an explicitly-applied
@@ -53,11 +66,11 @@ export function employeeDaysWorked(employee: Employee): number {
  *  result matches the Attendance grid exactly; without marks it falls back to
  *  the employee's denormalised figures. This is the single salary seam used by
  *  the salary table, slip, payslip and portal. */
-export function employeeBreakdown(employee: Employee, marks?: Mark[]): SalaryResult {
+export function employeeBreakdown(employee: Employee, marks?: Mark[], tiffinLabels: TiffinLabel[] = []): SalaryResult {
   return computeSalary(employee, {
     marks,
     advanceAdjusted: employeeAdvanceAdjustment(employee),
-    tiffinTotal: employeeTiffinTotal(employee),
+    tiffinTotal: employeeTiffinTotal(employee, tiffinLabels),
   });
 }
 
