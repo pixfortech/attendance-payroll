@@ -8,7 +8,7 @@
 import type { Employee, TiffinLabel } from '../types';
 import type { Mark } from '../data/attendanceMarks';
 import { CURRENT_MONTH } from '../data/month';
-import { employeeAdvanceRemaining, employeeBreakdown, salaryStatus } from './payroll';
+import { employeeBreakdown, salaryStatus } from './payroll';
 import { formatINR } from '../services/format';
 
 const STATUS_LABEL: Record<string, string> = { notstarted: 'Not started', requested: 'Requested', pending: 'Pending', approved: 'Approved', paid: 'Paid', hold: 'On hold' };
@@ -22,8 +22,8 @@ function esc(s: string): string {
  *  Pass the month's attendance `marks` so figures match the salary table. */
 export function buildPayslipHtml(employee: Employee, marks?: Mark[], tiffinLabels?: TiffinLabel[]): string {
   const b = employeeBreakdown(employee, marks, tiffinLabels);
-  const adjusted = b.advanceAdjustment;
-  const remaining = employeeAdvanceRemaining(employee);
+  const adjusted = b.advanceAdjusted;
+  const remaining = b.advanceRemaining;
   const status = salaryStatus(employee);
 
   const rows: [string, string][] = [
@@ -33,22 +33,22 @@ export function buildPayslipHtml(employee: Employee, marks?: Mark[], tiffinLabel
     ['Month', CURRENT_MONTH.label],
     ['Monthly salary', employee.salaryMissing ? '—' : formatINR(employee.salary)],
     ['Salary basis', BASIS_LABEL[employee.basis]],
-    ['Daily rate', formatINR(b.daily)],
+    ['Daily rate', formatINR(b.dailyRate)],
     ['Present days', String(b.presentDays)],
     ['Half days', String(b.halfDays)],
     ['Leave days', String(b.leaveDays)],
     ['Absent days', String(b.absentDays)],
-    ['Free / paid leave used', `${b.freeLeaveUsed} / ${b.freeLeaveAllowed}`],
+    ['Free / paid leave used', `${b.freeLeaveUsed} / ${b.freeLeaveAvailable}`],
     ['Payable days', String(b.payableDays)],
-    ['Gross earned', formatINR(b.grossEarned)],
-    ['Tiffin / allowance (CTC)', formatINR(b.tiffinTotal)],
+    ['Gross payable (before tiffin)', formatINR(b.grossPayableBeforeTiffin)],
+    ['Tiffin / food allowance (CTC)', '+ ' + formatINR(b.tiffinCTC)],
     ['Advance adjusted (this month)', adjusted > 0 ? '− ' + formatINR(adjusted) : formatINR(0)],
     ['Advance remaining', formatINR(remaining)],
     ['Payment status', STATUS_LABEL[status] ?? status],
     ['Generated', new Date().toLocaleString('en-IN')],
   ];
   const body = rows.map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td class="v">${esc(v)}</td></tr>`).join('');
-  const note = `This is a system-generated payslip${status !== 'paid' ? ' (provisional — salary not yet paid)' : ''}. Tiffin/food allowance is a company-paid CTC, separate from net salary. Figures are based on recorded attendance for ${esc(CURRENT_MONTH.label)}.`;
+  const note = `This is a system-generated payslip${status !== 'paid' ? ' (provisional — salary not yet paid)' : ''}. Tiffin/food allowance is a company-paid CTC, included in net payable and shown separately for reporting. Figures are based on recorded attendance for ${esc(CURRENT_MONTH.label)}.`;
 
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Payslip — ${esc(employee.name)} — ${esc(CURRENT_MONTH.label)}</title>
 <style>
@@ -68,7 +68,7 @@ export function buildPayslipHtml(employee: Employee, marks?: Mark[], tiffinLabel
   <div class="sub">Salary Slip · ${esc(CURRENT_MONTH.label)}</div>
   <table>
     ${body}
-    <tr class="net"><td class="k">Net payable</td><td class="v">${esc(employee.salaryMissing ? '—' : formatINR(b.netSalary))}</td></tr>
+    <tr class="net"><td class="k">Net payable (after tiffin)</td><td class="v">${esc(employee.salaryMissing ? '—' : formatINR(b.netPayableAfterTiffin))}</td></tr>
   </table>
   <p class="note">${note}</p>
 </body></html>`;

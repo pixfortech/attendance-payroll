@@ -544,14 +544,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       employeeId: emp.id,
       month: CURRENT_MONTH.month,
       year: CURRENT_MONTH.year,
-      grossPayable: emp.salaryMissing ? 0 : b.grossEarned,
+      grossPayable: emp.salaryMissing ? 0 : b.grossPayableBeforeTiffin,
       workedDays: b.workedDays,
       leaveUsed: b.leaveDays,
       freeLeaveUsed: b.freeLeaveUsed,
       deductionTotal: b.deductionTotal,
-      advanceAdjustment: b.advanceAdjustment,
-      tiffinCtc: b.tiffinTotal,
-      netPayable: b.netSalary,
+      advanceAdjustment: b.advanceAdjusted,
+      tiffinCtc: b.tiffinCTC,
+      netPayable: b.netPayableAfterTiffin,
       status: salaryStatusToDoc(status),
       paymentId: paymentId ?? prev?.paymentId,
       approvedAt: status === 'approved' || status === 'paid' ? prev?.approvedAt ?? now : prev?.approvedAt,
@@ -1016,7 +1016,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         if (!emp) return;
         const b = employeeBreakdown(emp, attendanceMarks[emp.id], tiffinLabels);
         commitSalaryEntry(emp, salaryStatus(emp), employees);
-        pushAudit({ entity: 'Salary', target: `${emp.name} (${emp.id})`, field: 'Salary recalculated', oldValue: 'frozen run', newValue: `${b.workedDays}d · ₹${b.netSalary}` });
+        pushAudit({ entity: 'Salary', target: `${emp.name} (${emp.id})`, field: 'Salary recalculated', oldValue: 'frozen run', newValue: `${b.workedDays}d · ₹${b.netPayableAfterTiffin}` });
         toast('Salary recalculated from attendance');
       },
 

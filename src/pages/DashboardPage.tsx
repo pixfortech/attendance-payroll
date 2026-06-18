@@ -13,16 +13,17 @@ function EmptyHint({ children }: { children: React.ReactNode }) {
 
 export function DashboardPage() {
   const navigate = useNavigate();
-  const { employees, branches, checkins, pendingSync, tiffinLabels } = useAppStore();
+  const { employees, branches, checkins, pendingSync, attendanceMarks, tiffinLabels } = useAppStore();
 
   const active = employees.filter(isActiveEmployee);
+  const netOf = (e: typeof active[number]) => employeeBreakdown(e, attendanceMarks[e.id], tiffinLabels).netPayableAfterTiffin;
   const activeBranches = branches.filter((b) => !b.archived && b.status === 'active');
   const presentToday = new Set(checkins.map((c) => c.employeeId)).size;
   const absentToday = Math.max(0, active.length - presentToday);
   const halfToday = checkins.filter((c) => c.requestedMark === 'half').length;
   const reviewToday = checkins.filter((c) => (c.verificationStatus ?? (c.approved ? 'verified' : 'needs_review')) === 'needs_review').length;
   const offlinePending = pendingSync.length;
-  const netPayable = round2(active.reduce((s, e) => s + employeeBreakdown(e).netSalary, 0));
+  const netPayable = round2(active.reduce((s, e) => s + netOf(e), 0));
   const tiffinCTC = round2(active.reduce((s, e) => s + employeeTiffinTotal(e, tiffinLabels), 0));
   const pending = active.filter((e) => ['pending', 'requested'].includes(salaryStatus(e)));
   const approvedCount = active.filter((e) => e.payrollStatus === 'approved').length;
@@ -52,7 +53,7 @@ export function DashboardPage() {
       header: 'Net payable',
       align: 'right',
       render: (b) => {
-        const payable = active.filter((e) => e.branchCode === b.code || e.branch === b.name).reduce((s, e) => s + employeeBreakdown(e).netSalary, 0);
+        const payable = active.filter((e) => e.branchCode === b.code || e.branch === b.name).reduce((s, e) => s + netOf(e), 0);
         return <span style={{ fontWeight: 700, color: 'var(--text-strong)', fontFamily: 'var(--font-mono)' }}>{formatINR0(payable)}</span>;
       },
     },
@@ -74,7 +75,7 @@ export function DashboardPage() {
       )}
 
       <div className="gx-grid gx-grid-stats">
-        <StatCard label={`Net payable — ${CURRENT_MONTH.label.split(' ')[0]}`} value={formatNumberIN(netPayable)} prefix="₹" icon="wallet" tone="brand" footnote="take-home salaries (excl. tiffin)" onClick={() => navigate('/salary')} />
+        <StatCard label={`Net payable — ${CURRENT_MONTH.label.split(' ')[0]}`} value={formatNumberIN(netPayable)} prefix="₹" icon="wallet" tone="brand" footnote="take-home salaries (incl. tiffin)" onClick={() => navigate('/salary')} />
         <StatCard label="Present today" value={presentToday} suffix={`/ ${active.length}`} icon="users" tone="green" footnote={presentToday === 0 ? 'No attendance recorded yet' : 'checked in today'} onClick={() => navigate('/attendance')} />
         <StatCard label="Pending approvals" value={pending.length} icon="clock" tone="amber" footnote={pending.length === 0 ? 'No salary approvals pending' : 'awaiting review'} onClick={() => navigate('/salary')} />
         <StatCard label={`Tiffin (CTC) — ${CURRENT_MONTH.label.split(' ')[0]}`} value={formatNumberIN(tiffinCTC)} prefix="₹" icon="utensils" tone="blue" footnote={tiffinCTC === 0 ? 'No tiffin records yet' : 'paid on top of salary'} onClick={() => navigate('/tiffin')} />
@@ -136,7 +137,7 @@ export function DashboardPage() {
                     <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{a.branch}</div>
                   </div>
                   <Badge variant={meta.variant} size="sm" dot>{meta.label}</Badge>
-                  <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text-strong)', fontFamily: 'var(--font-mono)' }}>{formatINR0(employeeBreakdown(a).netSalary)}</div>
+                  <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text-strong)', fontFamily: 'var(--font-mono)' }}>{formatINR0(netOf(a))}</div>
                 </div>
               );
             })}

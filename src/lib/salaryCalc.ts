@@ -10,9 +10,11 @@
                   = monthlySalary / daysInMonth    (calendar / joining month)
      payableDays  = present(1) + half(0.5) + paid-free-leave(1, within bucket)
                     — absent / unpaid leave / unmarked future days = 0
-     grossEarned  = daily × payableDays
-     netPayable   = grossEarned + otherEarnings − otherDeductions − advanceAdjusted
-     tiffin       = separate company CTC, NEVER part of net.
+     grossPayableBeforeTiffin = daily × payableDays
+     netPayableAfterTiffin    = gross + tiffinCTC − advanceAdjusted
+                                + otherEarnings − otherDeductions
+     Tiffin is included in net payable (current business rule) but is ALSO
+     surfaced as its own field so it can be shown separately for reporting.
 
    The attendance source is the SAME month grid the Attendance page uses
    (`attendanceMarks`), passed in as `marks`, so worked days always match.
@@ -35,6 +37,8 @@ function tenureMonths(employee: Employee): number {
 
 export interface SalaryResult extends SalaryBreakdown {
   monthlySalary: number;
+  /** Alias of {@link SalaryBreakdown.daily}, clearer name for views. */
+  dailyRate: number;
   presentDays: number;
   halfDays: number;
   leaveDays: number;
@@ -47,12 +51,29 @@ export interface SalaryResult extends SalaryBreakdown {
   payableDays: number;
   /** daily × payableDays. */
   grossEarned: number;
+  /** Free/paid leaves available this month (alias of freeLeaveAllowed). */
+  freeLeaveAvailable: number;
+  /** Attendance/unpaid-leave deduction from base salary (alias of leaveDeduction). */
+  deduction: number;
+  /** Attendance-based salary payable BEFORE tiffin (alias of grossEarned). */
+  grossPayableBeforeTiffin: number;
+  /** Tiffin / food allowance CTC for the month (alias of tiffinTotal). */
+  tiffinCTC: number;
+  /** Advance adjusted this month (alias of advanceAdjustment). */
+  advanceAdjusted: number;
+  /** Outstanding advance balance carried forward. */
+  advanceRemaining: number;
+  /** Final payable INCLUDING tiffin (alias of finalPayable) — the canonical
+   *  "Net payable" shown to admins and employees. */
+  netPayableAfterTiffin: number;
 }
 
 export interface SalaryContext {
   /** The month's attendance marks (preferred, shared with the grid). */
   marks?: Mark[];
   advanceAdjusted?: number;
+  /** Outstanding advance balance (for display in the shared result). */
+  advanceRemaining?: number;
   tiffinTotal?: number;
   otherEarnings?: number;
   otherDeductions?: number;
@@ -90,7 +111,11 @@ export function computeSalary(employee: Employee, ctx: SalaryContext = {}): Sala
   const totalDeductions = round2(otherDeductions);
   const leaveDeduction = round2(daily * unpaidLeaveDays); // informational (already excluded from payable)
   const deductionTotal = round2(advanceAdjustment + otherDeductions);
+  // Take-home BEFORE tiffin (kept for back-compat / internal use).
   const netSalary = round2(grossEarned + otherEarnings - otherDeductions - advanceAdjustment);
+  // Canonical Net payable = gross + tiffin − advance + other earnings − other deductions.
+  const netPayableAfterTiffin = round2(netSalary + tiffinTotal);
+  const advanceRemaining = ctx.advanceRemaining ?? 0;
 
   return {
     daily,
@@ -107,9 +132,10 @@ export function computeSalary(employee: Employee, ctx: SalaryContext = {}): Sala
     tiffinTotal,
     advanceAdjustment,
     netSalary,
-    finalPayable: round2(netSalary + tiffinTotal),
+    finalPayable: netPayableAfterTiffin,
     // attendance-based extras
     monthlySalary: employee.salary,
+    dailyRate: daily,
     presentDays: att.present,
     halfDays: att.half,
     leaveDays: att.leave,
@@ -119,5 +145,13 @@ export function computeSalary(employee: Employee, ctx: SalaryContext = {}): Sala
     unpaidLeaveDays,
     payableDays,
     grossEarned,
+    // clearer aliases for the single shared result (Part A)
+    freeLeaveAvailable: freeLeaveAllowed,
+    deduction: leaveDeduction,
+    grossPayableBeforeTiffin: grossEarned,
+    tiffinCTC: tiffinTotal,
+    advanceAdjusted: advanceAdjustment,
+    advanceRemaining,
+    netPayableAfterTiffin,
   };
 }

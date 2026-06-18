@@ -31,20 +31,22 @@ const CHIP: Record<Tone, [string, string]> = {
 };
 
 export function ReportsPage() {
-  const { employees, branches, tiffinLabels } = useAppStore();
+  const { employees, branches, attendanceMarks, tiffinLabels } = useAppStore();
   const toast = useToast();
   const [month, setMonth] = useState<string>(CURRENT_MONTH.label);
   const [branch, setBranch] = useState('');
 
   const list = employees.filter((e) => employeeInBranch(e, branch, branches));
   const branchList = branches.filter((b) => !branch || b.code === branch);
+  // Same attendance-based + tiffin source as the salary table, so reports agree.
+  const bOf = (e: (typeof list)[number]) => employeeBreakdown(e, attendanceMarks[e.id], tiffinLabels);
 
   const generators: Record<string, () => (string | number)[][]> = {
     'Monthly salary sheet': () => [
-      ['Employee', 'ID', 'Branch', 'Gross', 'Worked', 'Deduction', 'Tiffin CTC', 'Net payable', 'Status'],
+      ['Employee', 'ID', 'Branch', 'Salary', 'Worked', 'Deduction', 'Tiffin CTC', 'Gross payable', 'Net payable', 'Status'],
       ...list.map((e) => {
-        const b = employeeBreakdown(e);
-        return [e.name, e.id, e.branch, e.salary, e.worked, b.leaveDeduction, b.tiffinTotal, b.finalPayable, e.payrollStatus];
+        const b = bOf(e);
+        return [e.name, e.id, e.branch, e.salary, b.workedDays, b.deduction, b.tiffinCTC, b.grossPayableBeforeTiffin, b.netPayableAfterTiffin, e.payrollStatus];
       }),
     ],
     'Branch-wise salary report': () => [
@@ -62,15 +64,15 @@ export function ReportsPage() {
     'Paid leave report': () => [
       ['Employee', 'Leave used', 'Free allowed', 'Deductible days'],
       ...list.map((e) => {
-        const b = employeeBreakdown(e);
-        return [e.name, e.leaveUsed, b.freeLeaveAllowed, b.deductibleDays];
+        const b = bOf(e);
+        return [e.name, e.leaveUsed, b.freeLeaveAvailable, b.deductibleDays];
       }),
     ],
     'Unused leave payable': () => [
       ['Employee', 'Unused free leave', 'Daily salary', 'Encashable'],
       ...list.map((e) => {
-        const b = employeeBreakdown(e);
-        return [e.name, b.leaveUnused, b.daily, round2(b.leaveUnused * b.daily)];
+        const b = bOf(e);
+        return [e.name, b.leaveUnused, b.dailyRate, round2(b.leaveUnused * b.dailyRate)];
       }),
     ],
     'Advance / loan / deduction': () => [
@@ -81,9 +83,9 @@ export function ReportsPage() {
       ['Metric', 'Value'],
       ['Employees', list.length],
       ['Gross total', list.reduce((s, e) => s + e.salary, 0)],
-      ['Total deductions', round2(list.reduce((s, e) => s + employeeBreakdown(e).totalDeductions, 0))],
+      ['Total deductions', round2(list.reduce((s, e) => s + bOf(e).totalDeductions, 0))],
       ['Tiffin CTC total', list.reduce((s, e) => s + employeeTiffinTotal(e, tiffinLabels), 0)],
-      ['Net payable total', round2(list.reduce((s, e) => s + employeeBreakdown(e).finalPayable, 0))],
+      ['Net payable total', round2(list.reduce((s, e) => s + bOf(e).netPayableAfterTiffin, 0))],
     ],
     'Cash / bank / UPI payment': () => {
       const totals: Record<string, { count: number; amount: number }> = {};

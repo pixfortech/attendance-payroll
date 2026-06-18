@@ -5,7 +5,7 @@ import { RecordPaymentModal } from '../components/payroll/RecordPaymentModal';
 import { AdvanceAdjustModal } from '../components/payroll/AdvanceAdjustModal';
 import { SALARY_STATUS_META } from '../components/payroll/statusMeta';
 import { useAppStore } from '../store/AppStore';
-import { employeeAdvanceRemaining, employeeBreakdown, salaryStatus, canApproveSalary, isActiveEmployee } from '../lib/payroll';
+import { employeeBreakdown, salaryStatus, canApproveSalary, isActiveEmployee } from '../lib/payroll';
 import { branchFilterOptions, employeeInBranch } from '../lib/branches';
 import { downloadCsv } from '../lib/download';
 import { downloadPayslip } from '../lib/payslip';
@@ -41,24 +41,25 @@ export function SalaryPage() {
   const figures = (r: Employee) => {
     const b = employeeBreakdown(r, marksFor(r.id), tiffinLabels);
     return {
-      gross: b.grossEarned, // daily × payable days (attendance-based), not full monthly
+      salary: r.salary, // monthly base salary
+      gross: b.grossPayableBeforeTiffin, // daily × payable days (attendance-based), before tiffin
       worked: b.workedDays,
       payableDays: b.payableDays,
       leaveUsed: b.leaveDays,
-      freeLeaveAllowed: b.freeLeaveAllowed,
-      deductionTotal: b.leaveDeduction,
-      tiffinTotal: b.tiffinTotal,
-      netSalary: b.netSalary,
-      advanceAdjusted: b.advanceAdjustment,
-      advanceRemaining: employeeAdvanceRemaining(r),
+      freeLeaveAllowed: b.freeLeaveAvailable,
+      deductionTotal: b.deduction,
+      tiffinTotal: b.tiffinCTC,
+      netPayable: b.netPayableAfterTiffin, // gross + tiffin − advance
+      advanceAdjusted: b.advanceAdjusted,
+      advanceRemaining: b.advanceRemaining,
     };
   };
-  /** A frozen/approved entry whose values no longer match current attendance. */
+  /** A frozen/approved entry whose values no longer match current attendance/tiffin. */
   const staleFor = (r: Employee) => {
     const se = entryFor(r.id);
     if (!se) return false;
     const b = employeeBreakdown(r, marksFor(r.id), tiffinLabels);
-    return Math.abs((se.netPayable ?? 0) - b.netSalary) > 0.01 || Math.abs((se.workedDays ?? 0) - b.workedDays) > 0.001;
+    return Math.abs((se.netPayable ?? 0) - b.netPayableAfterTiffin) > 0.01 || Math.abs((se.workedDays ?? 0) - b.workedDays) > 0.001;
   };
   const inTab = (e: Employee) => {
     const s = salaryStatus(e);
@@ -78,29 +79,41 @@ export function SalaryPage() {
 
   const exportCsv = () =>
     downloadCsv(`salary-${CURRENT_MONTH.short}.csv`, [
-      ['Employee', 'ID', 'Branch', 'Gross payable', 'Worked', 'Leave used', 'Free leave', 'Deduction', 'Tiffin CTC', 'Advance adjusted', 'Advance remaining', 'Net payable', 'Status'],
+      ['Employee', 'ID', 'Branch', 'Salary', 'Worked', 'Leave used', 'Free leave', 'Deduction', 'Tiffin CTC', 'Advance adjusted', 'Advance remaining', 'Gross payable', 'Net payable', 'Status'],
       ...rows.map((r) => {
         const f = figures(r);
-        return [r.name, r.id, r.branch, r.salaryMissing ? 'missing' : f.gross, f.worked, f.leaveUsed, f.freeLeaveAllowed, f.deductionTotal, f.tiffinTotal, f.advanceAdjusted, f.advanceRemaining, f.netSalary, SALARY_STATUS_META[salaryStatus(r)].label];
+        return [r.name, r.id, r.branch, r.salaryMissing ? 'missing' : f.salary, f.worked, f.leaveUsed, f.freeLeaveAllowed, f.deductionTotal, f.tiffinTotal, f.advanceAdjusted, f.advanceRemaining, r.salaryMissing ? 'missing' : f.gross, f.netPayable, SALARY_STATUS_META[salaryStatus(r)].label];
       }),
     ]);
 
   const Actions = ({ r, full }: { r: Employee; full?: boolean }) => {
     const s = salaryStatus(r);
+    const stale = staleFor(r);
     return (
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, ...(full ? { display: 'flex' } : {}) }}>
+      <div style={{ display: full ? 'flex' : 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', justifyContent: 'flex-end', flexWrap: full ? 'wrap' : 'nowrap' }}>
         {s === 'approved' && <Button variant="accent" size="sm" full={full} iconLeft={<Icon name="wallet" size={14} />} onClick={() => setPayFor(r)}>Mark paid</Button>}
         {(s === 'pending' || s === 'requested' || s === 'notstarted' || s === 'hold') && (
           <Button variant="secondary" size="sm" full={full} disabled={!canApproveSalary(r)} title={!canApproveSalary(r) ? 'Needs at least 1 worked day or a salary request' : undefined} iconLeft={<Icon name="badgeCheck" size={14} />} onClick={() => setPayrollStatus(r.id, 'approved')}>Approve</Button>
         )}
-        {(s === 'pending' || s === 'requested' || s === 'approved') && <Button variant="ghost" size="sm" full={full} onClick={() => setPayrollStatus(r.id, 'hold')}>Hold</Button>}
-        {staleFor(r) && <Button variant="secondary" size="sm" full={full} iconLeft={<Icon name="refresh" size={14} />} onClick={() => recalcSalaryFromAttendance(r.id)}>Recalculate</Button>}
+        {stale && (full
+          ? <Button variant="secondary" size="sm" full iconLeft={<Icon name="refresh" size={14} />} onClick={() => recalcSalaryFromAttendance(r.id)}>Recalculate</Button>
+          : <IconButton icon="refresh" label="Recalculate from attendance" size="sm" onClick={() => recalcSalaryFromAttendance(r.id)} />)}
+        {(s === 'pending' || s === 'requested' || s === 'approved') && (full
+          ? <Button variant="ghost" size="sm" full onClick={() => setPayrollStatus(r.id, 'hold')}>Hold</Button>
+          : <IconButton icon="clock" label="Put on hold" size="sm" onClick={() => setPayrollStatus(r.id, 'hold')} />)}
         {!full && <IconButton icon="banknote" label="Adjust advance" size="sm" onClick={() => setAdjustFor(r)} />}
         {!full && <IconButton icon="download" label="Download payslip" size="sm" onClick={() => onDownload(r)} />}
         {!full && <IconButton icon="eye" label="View slip" size="sm" onClick={() => setSlip(r)} />}
       </div>
     );
   };
+
+  const RecalcHint = ({ r }: { r: Employee }) =>
+    staleFor(r) ? (
+      <span title="Approved salary differs from current attendance/tiffin calculation." style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, fontSize: 10.5, fontWeight: 700, color: 'var(--amber-700)', background: 'var(--amber-50)', border: '1px solid var(--amber-100)', borderRadius: 'var(--radius-pill)', padding: '2px 8px', whiteSpace: 'nowrap' }}>
+        <Icon name="alert" size={11} /> Needs recalculation
+      </span>
+    ) : null;
 
   const columns: Column<Employee>[] = [
     {
@@ -116,7 +129,7 @@ export function SalaryPage() {
         </div>
       ),
     },
-    { key: 'gross', header: 'Gross payable', align: 'right', render: (r) => (r.salaryMissing ? <Badge variant="pending" size="sm" dot>Salary missing</Badge> : <span style={mono}>{formatINR(figures(r).gross)}</span>) },
+    { key: 'salary', header: 'Salary', align: 'right', render: (r) => (r.salaryMissing ? <Badge variant="pending" size="sm" dot>Missing</Badge> : <span style={{ ...mono, color: 'var(--text-body)' }}>{formatINR(figures(r).salary)}</span>) },
     { key: 'worked', header: 'Worked', align: 'right', render: (r) => <span style={{ ...mono, color: 'var(--text-body)' }}>{figures(r).worked} d</span> },
     {
       key: 'leave',
@@ -131,9 +144,10 @@ export function SalaryPage() {
     { key: 'tiffin', header: 'Tiffin CTC', align: 'right', render: (r) => { const t = figures(r).tiffinTotal; return <span style={{ ...mono, color: t > 0 ? 'var(--blue-600)' : 'var(--text-subtle)' }}>{t > 0 ? '+' + formatINR(t) : '—'}</span>; } },
     { key: 'advAdj', header: 'Advance adj.', align: 'right', render: (r) => { const a = figures(r).advanceAdjusted; return <span style={{ ...mono, color: a > 0 ? 'var(--coral-600)' : 'var(--text-subtle)' }}>{a > 0 ? '−' + formatINR(a) : '—'}</span>; } },
     { key: 'advRem', header: 'Advance rem.', align: 'right', render: (r) => { const a = figures(r).advanceRemaining; return <span style={{ ...mono, color: a > 0 ? 'var(--text-body)' : 'var(--text-subtle)' }}>{a > 0 ? formatINR(a) : '—'}</span>; } },
-    { key: 'net', header: 'Net payable', align: 'right', render: (r) => (r.salaryMissing ? <span style={{ color: 'var(--text-subtle)' }}>—</span> : <span style={{ ...mono, fontWeight: 700, color: 'var(--text-strong)' }}>{formatINR(figures(r).netSalary)}</span>) },
-    { key: 'status', header: 'Status', render: (r) => { const s = SALARY_STATUS_META[salaryStatus(r)]; return (<div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}><Badge variant={s.variant} dot>{s.label}</Badge>{staleFor(r) && <Badge variant="pending" size="sm" icon="alert">Differs — recalc</Badge>}</div>); } },
-    { key: 'actions', header: 'Actions', align: 'right', render: (r) => <Actions r={r} /> },
+    { key: 'gross', header: 'Gross payable', align: 'right', render: (r) => (r.salaryMissing ? <span style={{ color: 'var(--text-subtle)' }}>—</span> : <span style={mono}>{formatINR(figures(r).gross)}</span>) },
+    { key: 'net', header: 'Net payable', align: 'right', render: (r) => (r.salaryMissing ? <span style={{ color: 'var(--text-subtle)' }}>—</span> : <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}><span style={{ ...mono, fontWeight: 700, color: 'var(--text-strong)' }}>{formatINR(figures(r).netPayable)}</span><RecalcHint r={r} /></div>) },
+    { key: 'status', header: 'Status', render: (r) => { const s = SALARY_STATUS_META[salaryStatus(r)]; return <Badge variant={s.variant} dot>{s.label}</Badge>; } },
+    { key: 'actions', header: 'Actions', align: 'right', stickyRight: true, render: (r) => <Actions r={r} /> },
   ];
 
   return (
@@ -163,7 +177,7 @@ export function SalaryPage() {
           columns={columns}
           rows={rows}
           rowKey={(r) => r.id}
-          minWidth={1240}
+          minWidth={1320}
           emptyText={active.length === 0 ? 'No employees yet — import employees to begin payroll.' : 'No salaries match this filter.'}
           mobileCard={(r) => {
             const b = figures(r);
@@ -185,16 +199,18 @@ export function SalaryPage() {
                 ) : (
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '10px 12px', background: 'var(--indigo-50)', borderRadius: 'var(--radius-md)' }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--indigo-700)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Net payable</span>
-                    <span style={{ fontSize: 18, fontWeight: 800, ...mono, color: 'var(--indigo-700)' }}>{formatINR(b.netSalary)}</span>
+                    <span style={{ fontSize: 18, fontWeight: 800, ...mono, color: 'var(--indigo-700)' }}>{formatINR(b.netPayable)}</span>
                   </div>
                 )}
+                {staleFor(r) && <RecalcHint r={r} />}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 12.5 }}>
-                  <Kv label="Gross" value={r.salaryMissing ? '—' : formatINR(b.gross)} />
+                  <Kv label="Salary" value={r.salaryMissing ? '—' : formatINR(b.salary)} />
                   <Kv label="Worked" value={`${b.worked} d`} />
                   <Kv label="Deduction" value={b.deductionTotal > 0 ? '−' + formatINR(b.deductionTotal) : '—'} color={b.deductionTotal > 0 ? 'var(--coral-600)' : undefined} />
                   <Kv label="Tiffin CTC" value={b.tiffinTotal > 0 ? '+' + formatINR(b.tiffinTotal) : '—'} color={b.tiffinTotal > 0 ? 'var(--blue-600)' : undefined} />
                   <Kv label="Advance adj." value={b.advanceAdjusted > 0 ? '−' + formatINR(b.advanceAdjusted) : '—'} color={b.advanceAdjusted > 0 ? 'var(--coral-600)' : undefined} />
                   <Kv label="Advance rem." value={b.advanceRemaining > 0 ? formatINR(b.advanceRemaining) : '—'} />
+                  <Kv label="Gross payable" value={r.salaryMissing ? '—' : formatINR(b.gross)} />
                 </div>
                 <Actions r={r} full />
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -212,7 +228,7 @@ export function SalaryPage() {
       {payFor && (
         <RecordPaymentModal
           defaultType="Salary"
-          defaultAmount={String(employeeBreakdown(payFor, marksFor(payFor.id), tiffinLabels).netSalary)}
+          defaultAmount={String(employeeBreakdown(payFor, marksFor(payFor.id), tiffinLabels).netPayableAfterTiffin)}
           onClose={() => setPayFor(null)}
           onSave={(p) => {
             addPayment(payFor.id, p);

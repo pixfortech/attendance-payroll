@@ -25,7 +25,16 @@ describe('buildPayslipHtml', () => {
   it('uses attendance marks: 18 present on ₹10,000 fixed30 → ₹5,999.94 (not blank/₹10,000)', () => {
     const marks = Array.from({ length: 26 }, (_, i) => (i < 18 ? 'P' : 'O')) as Mark[];
     const html = buildPayslipHtml(emp({ salary: 10000, basis: 'fixed30' }), marks);
-    expect(html).toContain('5,999.94'); // gross earned + net
+    expect(html).toContain('5,999.94'); // gross payable + net
     expect(html).toContain('Payable days');
+  });
+
+  it('shows tiffin ₹2,880 (not ₹0) and net payable ₹8,879.94 (gross + tiffin)', () => {
+    const marks = Array.from({ length: 26 }, (_, i) => (i < 18 ? 'P' : 'O')) as Mark[];
+    const labels = [{ id: 't1', label: 'Breakfast', amount: 60 }, { id: 't2', label: 'Lunch / Dinner', amount: 100 }];
+    const html = buildPayslipHtml(emp({ salary: 10000, basis: 'fixed30', tiffinDays: 18 }), marks, labels);
+    expect(html).toMatch(/Tiffin \/ food allowance[\s\S]*2,880/);
+    expect(html).not.toMatch(/Tiffin \/ food allowance \(CTC\)<\/td><td class="v">\+ ₹0</); // not ₹0
+    expect(html).toMatch(/Net payable[\s\S]*8,879\.94/);
   });
 });

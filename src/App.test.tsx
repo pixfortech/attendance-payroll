@@ -79,6 +79,20 @@ describe('App — smoke & navigation', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Salary' })).toBeTruthy();
   });
 
+  it('salary table shows the required column order with a pinned Actions column', () => {
+    render(<App />);
+    const sidebar = screen.getByRole('complementary');
+    fireEvent.click(within(sidebar).getByText('Salary'));
+    expect(screen.getByRole('heading', { level: 1, name: 'Salary' })).toBeTruthy();
+    const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    expect(headers).toEqual([
+      'Employee', 'Salary', 'Worked', 'Leave (used/free)', 'Deduction',
+      'Tiffin CTC', 'Advance adj.', 'Advance rem.', 'Gross payable', 'Net payable', 'Status', 'Actions',
+    ]);
+    // A row action renders (Approve / Mark paid) — actions are present, not clipped away.
+    expect(screen.getAllByRole('button', { name: /Approve|Mark paid/ }).length).toBeGreaterThan(0);
+  });
+
   it('admin-login offers demo entry when Firebase is unconfigured', () => {
     window.history.pushState({}, '', '/admin-login');
     render(<App />);
@@ -341,8 +355,9 @@ describe('App — smoke & navigation', () => {
     render(<App />);
     expect(screen.getByText('Gobindo Das')).toBeTruthy();
     expect(screen.getByText('18 d')).toBeTruthy(); // worked matches attendance grid
-    expect(screen.getAllByText(/5,999\.94/).length).toBeGreaterThan(0); // gross + net
-    expect(screen.queryByText(/10,000\.00/)).toBeNull(); // not full monthly salary
+    // Attendance-based gross + net both show ₹5,999.94 (distinct from the base
+    // Salary column, which legitimately shows the ₹10,000 monthly salary).
+    expect(screen.getAllByText(/5,999\.94/).length).toBeGreaterThanOrEqual(2);
   });
 
   it('flags a stale approved salary entry and shows live attendance values', () => {
@@ -352,8 +367,8 @@ describe('App — smoke & navigation', () => {
     window.history.pushState({}, '', '/salary');
     render(<App />);
     expect(screen.getAllByText(/5,999\.94/).length).toBeGreaterThan(0); // live values, not the stale 10,000
-    expect(screen.getByText(/Differs/)).toBeTruthy(); // mismatch flag
-    expect(screen.getAllByRole('button', { name: 'Recalculate' }).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Needs recalculation/)).toBeTruthy(); // clearer mismatch flag (was "Differs — recalc")
+    expect(screen.getAllByRole('button', { name: /Recalculate/ }).length).toBeGreaterThan(0);
   });
 
   it('bulk attendance offers multiple branches and blocks future dates', () => {

@@ -9,6 +9,9 @@ export interface Column<T> {
   render: (row: T) => ReactNode;
   /** Omit from the mobile card body. */
   hideOnMobile?: boolean;
+  /** Pin this column to the right edge so it never scrolls off / clips
+   *  (used for an Actions column on a wide table). */
+  stickyRight?: boolean;
 }
 
 export interface ResponsiveTableProps<T> {
@@ -83,13 +86,16 @@ export function ResponsiveTable<T>({ columns, rows, rowKey, onRowClick, minWidth
     );
   }
 
+  const stickyHead: CSSProperties = { position: 'sticky', right: 0, zIndex: 2, background: 'var(--surface-inset)', boxShadow: '-8px 0 8px -8px rgba(38,37,74,0.18)' };
+  const stickyBody: CSSProperties = { position: 'sticky', right: 0, zIndex: 1, background: 'var(--surface-card)', boxShadow: '-8px 0 8px -8px rgba(38,37,74,0.18)' };
+
   return (
     <div className="gx-scroll" style={{ overflowX: 'auto' }}>
       <table style={{ borderCollapse: 'collapse', width: '100%', minWidth }}>
         <thead>
           <tr style={{ background: 'var(--surface-inset)' }}>
             {columns.map((c) => (
-              <th key={c.key} style={{ ...headCell, textAlign: c.align ?? 'left' }}>{c.header}</th>
+              <th key={c.key} style={{ ...headCell, textAlign: c.align ?? 'left', ...(c.stickyRight ? stickyHead : {}) }}>{c.header}</th>
             ))}
           </tr>
         </thead>
@@ -103,12 +109,10 @@ export function ResponsiveTable<T>({ columns, rows, rowKey, onRowClick, minWidth
             <tr
               key={rowKey(row)}
               onClick={onRowClick ? () => onRowClick(row) : undefined}
-              style={{ cursor: onRowClick ? 'pointer' : 'default', transition: 'background 0.1s' }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--neutral-50)')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+              style={{ cursor: onRowClick ? 'pointer' : 'default' }}
             >
               {columns.map((c) => (
-                <td key={c.key} style={{ ...bodyCell, textAlign: c.align ?? 'left' }}>{c.render(row)}</td>
+                <td key={c.key} style={{ ...bodyCell, textAlign: c.align ?? 'left', ...(c.stickyRight ? stickyBody : {}) }}>{c.render(row)}</td>
               ))}
             </tr>
           ))}

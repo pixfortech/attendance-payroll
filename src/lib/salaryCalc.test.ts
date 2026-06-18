@@ -54,3 +54,38 @@ describe('computeSalary — the screenshot bug', () => {
     expect(r.grossEarned).toBeCloseTo(r.daily * 18, 2);
   });
 });
+
+describe('net payable now INCLUDES tiffin (current business rule)', () => {
+  it('gross payable before tiffin = ₹5,999.94 (18 × ₹333.33)', () => {
+    const r = computeSalary(emp({}), { marks: grid(18), tiffinTotal: 2880 });
+    expect(r.grossPayableBeforeTiffin).toBeCloseTo(5999.94, 2);
+  });
+
+  it('tiffin ₹2,880 makes net payable ₹8,879.94 (gross + tiffin)', () => {
+    const r = computeSalary(emp({}), { marks: grid(18), tiffinTotal: 2880 });
+    expect(r.tiffinCTC).toBe(2880);
+    expect(r.netPayableAfterTiffin).toBeCloseTo(8879.94, 2);
+    // tiffin is NOT double-counted: net = gross + tiffin − advance exactly.
+    expect(r.netPayableAfterTiffin).toBeCloseTo(r.grossPayableBeforeTiffin + r.tiffinCTC, 2);
+  });
+
+  it('advance ₹1,000 makes net payable ₹7,879.94 (gross + tiffin − advance)', () => {
+    const r = computeSalary(emp({}), { marks: grid(18), tiffinTotal: 2880, advanceAdjusted: 1000 });
+    expect(r.netPayableAfterTiffin).toBeCloseTo(7879.94, 2);
+  });
+
+  it('netSalary (pre-tiffin) stays ₹5,999.94 — tiffin is surfaced separately', () => {
+    const r = computeSalary(emp({}), { marks: grid(18), tiffinTotal: 2880 });
+    expect(r.netSalary).toBeCloseTo(5999.94, 2);
+    expect(r.netPayableAfterTiffin - r.netSalary).toBeCloseTo(2880, 2);
+  });
+
+  it('exposes the Part A aliases (advanceRemaining, dailyRate, freeLeaveAvailable, deduction)', () => {
+    const r = computeSalary(emp({}), { marks: grid(18), tiffinTotal: 2880, advanceRemaining: 3000 });
+    expect(r.advanceRemaining).toBe(3000);
+    expect(r.dailyRate).toBeCloseTo(333.33, 2);
+    expect(r.freeLeaveAvailable).toBe(r.freeLeaveAllowed);
+    expect(r.deduction).toBe(r.leaveDeduction);
+    expect(r.grossPayableBeforeTiffin).toBe(r.grossEarned);
+  });
+});

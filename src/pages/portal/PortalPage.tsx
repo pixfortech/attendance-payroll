@@ -123,8 +123,8 @@ function HomeSection({ emp, onSlip, onGoLeave }: { emp: Employee; onSlip: () => 
         <div style={{ flex: 1, minWidth: 180 }}>
           <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)' }}>Namaste</div>
           <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em', color: '#fff', marginTop: 2 }}>{emp.name.split(' ')[0]}</h1>
-          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', marginTop: 6 }}>Your {CURRENT_MONTH.label} net payable (live)</p>
-          <div style={{ fontSize: 30, fontWeight: 800, ...mono, marginTop: 2 }}>{formatINR0(b.netSalary)}</div>
+          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', marginTop: 6 }}>Your {CURRENT_MONTH.label} net payable (live, incl. tiffin)</p>
+          <div style={{ fontSize: 30, fontWeight: 800, ...mono, marginTop: 2 }}>{formatINR0(b.netPayableAfterTiffin)}</div>
           <Button variant="accent" size="sm" iconLeft={<Icon name="fileText" size={15} />} onClick={onSlip} style={{ marginTop: 10 }}>View salary slip</Button>
         </div>
       </div>
@@ -140,12 +140,13 @@ function HomeSection({ emp, onSlip, onGoLeave }: { emp: Employee; onSlip: () => 
         <BreakdownRow label="Gross monthly salary" value={formatINR(emp.salary)} />
         <BreakdownRow label="Attendance" sub={`${emp.daysPresent} present · ${emp.daysAbsent} absent · ${emp.daysHalf} half`} value={`${emp.worked} d`} />
         <BreakdownRow label="Paid / free leave" sub={`${b.freeLeaveUsed} used · ${b.leaveUnused} left of 4`} value={`${emp.leaveUsed} taken`} />
-        <BreakdownRow label="Leave deduction" sub={b.leaveDeduction > 0 ? `${b.deductibleDays} deductible day(s)` : 'Within free-leave limit'} value={b.leaveDeduction > 0 ? formatSignedINR(-b.leaveDeduction) : formatINR(0)} tone={b.leaveDeduction > 0 ? 'red' : undefined} />
-        <BreakdownRow label="Tiffin / food allowance" sub="Company-paid CTC · paid separately, not in net" value={formatSignedINR(b.tiffinTotal)} tone="green" />
-        {advAdj > 0 && <BreakdownRow label="Advance adjustment" sub={`Remaining advance ${formatINR0(employeeAdvanceRemaining(emp))}`} value={formatSignedINR(-advAdj)} tone="red" />}
+        <BreakdownRow label="Leave deduction" sub={b.deduction > 0 ? `${b.deductibleDays} deductible day(s)` : 'Within free-leave limit'} value={b.deduction > 0 ? formatSignedINR(-b.deduction) : formatINR(0)} tone={b.deduction > 0 ? 'red' : undefined} />
+        <BreakdownRow label="Salary payable" sub="attendance-based, before tiffin" value={formatINR(b.grossPayableBeforeTiffin)} />
+        <BreakdownRow label="Tiffin / food allowance" sub="Company-paid CTC · included in net, shown separately for reporting" value={formatSignedINR(b.tiffinCTC)} tone="green" />
+        {advAdj > 0 && <BreakdownRow label="Advance adjustment" sub={`Remaining advance ${formatINR0(b.advanceRemaining)}`} value={formatSignedINR(-advAdj)} tone="red" />}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', marginTop: 12, background: 'var(--indigo-50)', borderRadius: 'var(--radius-md)' }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--indigo-700)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Net payable</span>
-          <span style={{ fontSize: 22, fontWeight: 800, ...mono, color: 'var(--indigo-700)' }}>{formatINR(b.netSalary)}</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--indigo-700)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Net payable (incl. tiffin)</span>
+          <span style={{ fontSize: 22, fontWeight: 800, ...mono, color: 'var(--indigo-700)' }}>{formatINR(b.netPayableAfterTiffin)}</span>
         </div>
         {emp.worked === 0 && (
           emp.salaryRequested ? (

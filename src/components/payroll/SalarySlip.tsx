@@ -1,7 +1,8 @@
 import { Avatar, Badge, Button, Icon, IconButton } from '../ui';
 import { formatINR, formatSignedINR } from '../../services';
-import { employeeBreakdown, employeeAdvanceRemaining, salaryStatus } from '../../lib/payroll';
+import { employeeBreakdown, salaryStatus } from '../../lib/payroll';
 import { downloadPayslip } from '../../lib/payslip';
+import { useAppStore } from '../../store/AppStore';
 import { CURRENT_MONTH } from '../../data';
 import { CONFIRMATION_META, SALARY_STATUS_META } from './statusMeta';
 import type { Employee, TiffinLabel } from '../../types';
@@ -38,9 +39,14 @@ function LineItem({
 }
 
 export function SalarySlip({ employee, marks, tiffinLabels, onClose }: { employee: Employee; marks?: Mark[]; tiffinLabels?: TiffinLabel[]; onClose: () => void }) {
-  const b = employeeBreakdown(employee, marks, tiffinLabels);
+  // Pull the shared tiffin labels + attendance from the store so the slip can
+  // NEVER fall back to ₹0 tiffin when a caller forgets to pass them.
+  const { tiffinLabels: storeLabels, attendanceMarks } = useAppStore();
+  const labels = tiffinLabels ?? storeLabels;
+  const resolvedMarks = marks ?? attendanceMarks[employee.id];
+  const b = employeeBreakdown(employee, resolvedMarks, labels);
   const status = SALARY_STATUS_META[salaryStatus(employee)];
-  const advanceRemaining = employeeAdvanceRemaining(employee);
+  const advanceRemaining = b.advanceRemaining;
   const lastSalaryPayment = employee.payments.find((p) => p.type === 'Salary');
 
   return (
@@ -108,30 +114,23 @@ export function SalarySlip({ employee, marks, tiffinLabels, onClose }: { employe
           <div style={{ marginTop: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>Earnings (attendance-based)</div>
             <LineItem label="Monthly salary" value={employee.salaryMissing ? '—' : formatINR(employee.salary)} />
-            <LineItem label="Daily rate" sub={`${employee.basis === 'fixed30' ? 'Fixed 30-day' : 'Calendar-day'} basis`} value={formatINR(b.daily)} />
+            <LineItem label="Daily rate" sub={`${employee.basis === 'fixed30' ? 'Fixed 30-day' : 'Calendar-day'} basis`} value={formatINR(b.dailyRate)} />
             <LineItem label="Attendance" sub={`${b.presentDays} present · ${b.halfDays} half · ${b.leaveDays} leave · ${b.absentDays} absent`} value={`${b.workedDays} d worked`} />
-            <LineItem label="Paid / free leave" sub={`${b.freeLeaveUsed} of ${b.freeLeaveAllowed} free this month`} value={`${b.freeLeaveUsed} d`} />
+            <LineItem label="Paid / free leave" sub={`${b.freeLeaveUsed} of ${b.freeLeaveAvailable} free this month`} value={`${b.freeLeaveUsed} d`} />
             <LineItem label="Payable days" sub="worked + paid leave" value={`${b.payableDays} d`} />
-            <LineItem label="Gross earned" sub={`${formatINR(b.daily)} × ${b.payableDays} days`} value={formatINR(b.grossEarned)} />
-            {b.advanceAdjustment > 0 && (
-              <LineItem label="Advance adjustment" sub={`Remaining advance balance ${formatINR(advanceRemaining)}`} value={formatSignedINR(-b.advanceAdjustment)} tone="red" />
+            <LineItem label="Gross payable (before tiffin)" sub={`${formatINR(b.dailyRate)} × ${b.payableDays} days`} value={formatINR(b.grossPayableBeforeTiffin)} />
+            <LineItem label="Tiffin / food allowance (CTC)" sub="Company-paid · included in net, shown separately for reporting" value={formatSignedINR(b.tiffinCTC)} tone="green" />
+            {b.advanceAdjusted > 0 && (
+              <LineItem label="Advance adjusted" sub={`Remaining advance balance ${formatINR(advanceRemaining)}`} value={formatSignedINR(-b.advanceAdjusted)} tone="red" />
             )}
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 18px', marginTop: 18, background: 'var(--indigo-50)', border: '1px solid var(--indigo-100)', borderRadius: 'var(--radius-md)' }}>
             <div>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--indigo-600)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Net payable</div>
-              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>Gross earned {formatINR(b.grossEarned)}{b.advanceAdjustment > 0 ? ` − Advance ${formatINR(b.advanceAdjustment)}` : ''}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>Gross {formatINR(b.grossPayableBeforeTiffin)}{b.tiffinCTC > 0 ? ` + Tiffin ${formatINR(b.tiffinCTC)}` : ''}{b.advanceAdjusted > 0 ? ` − Advance ${formatINR(b.advanceAdjusted)}` : ''}</div>
             </div>
-            <span style={{ fontSize: 26, fontWeight: 800, color: 'var(--indigo-700)', fontFamily: 'var(--font-mono)', letterSpacing: '-0.02em' }}>{formatINR(b.netSalary)}</span>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', marginTop: 10, background: 'var(--blue-50)', border: '1px solid var(--blue-100)', borderRadius: 'var(--radius-md)' }}>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--blue-700)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Tiffin / food allowance (CTC)</div>
-              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>Company cost · paid separately, not part of net</div>
-            </div>
-            <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--blue-700)', fontFamily: 'var(--font-mono)' }}>{formatINR(b.tiffinTotal)}</span>
+            <span style={{ fontSize: 26, fontWeight: 800, color: 'var(--indigo-700)', fontFamily: 'var(--font-mono)', letterSpacing: '-0.02em' }}>{formatINR(b.netPayableAfterTiffin)}</span>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, fontSize: 12.5 }}>
@@ -147,7 +146,7 @@ export function SalarySlip({ employee, marks, tiffinLabels, onClose }: { employe
             <Button variant="secondary" full iconLeft={<Icon name="printer" size={16} />} onClick={() => window.print()}>
               Print
             </Button>
-            <Button variant="primary" full iconLeft={<Icon name="download" size={16} />} onClick={() => downloadPayslip(employee)}>
+            <Button variant="primary" full iconLeft={<Icon name="download" size={16} />} onClick={() => downloadPayslip(employee, resolvedMarks, labels)}>
               Download
             </Button>
           </div>

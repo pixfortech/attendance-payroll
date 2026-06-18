@@ -70,6 +70,7 @@ export function employeeBreakdown(employee: Employee, marks?: Mark[], tiffinLabe
   return computeSalary(employee, {
     marks,
     advanceAdjusted: employeeAdvanceAdjustment(employee),
+    advanceRemaining: employeeAdvanceRemaining(employee),
     tiffinTotal: employeeTiffinTotal(employee, tiffinLabels),
   });
 }

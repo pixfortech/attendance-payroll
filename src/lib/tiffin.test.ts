@@ -81,20 +81,24 @@ describe('employeeTiffinLabels — effective label resolution', () => {
   });
 });
 
-describe('tiffin NEVER affects salary net', () => {
-  it('13. net payable is identical with and without tiffin (tiffin is separate CTC)', () => {
+describe('tiffin does not change the SALARY portion, but is added into net payable', () => {
+  it('13. the salary portion (netSalary, pre-tiffin) is identical with and without tiffin', () => {
     const withTiffin = employeeBreakdown(emp({ tiffin: GLOBAL, tiffinDays: 26 }), grid(18), GLOBAL);
     const without = employeeBreakdown(emp({ tiffin: [], tiffinDays: 0 }), grid(18), []);
-    expect(withTiffin.tiffinTotal).toBe(160 * 26);
-    expect(without.tiffinTotal).toBe(0);
-    expect(withTiffin.netSalary).toBeCloseTo(without.netSalary, 2);
+    expect(withTiffin.tiffinCTC).toBe(160 * 26);
+    expect(without.tiffinCTC).toBe(0);
+    expect(withTiffin.netSalary).toBeCloseTo(without.netSalary, 2); // salary portion unchanged
     expect(withTiffin.netSalary).toBeCloseTo(5999.94, 2); // ₹333.33/day × 18
+    // …but net payable INCLUDES the tiffin CTC (current business rule).
+    expect(withTiffin.netPayableAfterTiffin).toBeCloseTo(5999.94 + 160 * 26, 2);
   });
 
-  it('14. disabling tiffin leaves net salary unchanged (only tiffin CTC drops to ₹0)', () => {
+  it('14. disabling tiffin leaves the salary portion unchanged; tiffin CTC and its net contribution drop to ₹0', () => {
     const enabled = employeeBreakdown(emp({ tiffin: GLOBAL, tiffinDays: 26 }), grid(18), GLOBAL);
     const disabled = employeeBreakdown(emp({ tiffin: GLOBAL, tiffinDays: 26, tiffinEnabled: false }), grid(18), GLOBAL);
-    expect(disabled.tiffinTotal).toBe(0);
+    expect(disabled.tiffinCTC).toBe(0);
     expect(disabled.netSalary).toBeCloseTo(enabled.netSalary, 2);
+    expect(disabled.netPayableAfterTiffin).toBeCloseTo(enabled.netSalary, 2); // no tiffin added
+    expect(enabled.netPayableAfterTiffin).toBeGreaterThan(disabled.netPayableAfterTiffin);
   });
 });
