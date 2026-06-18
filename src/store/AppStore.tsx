@@ -224,6 +224,8 @@ interface AppContextValue {
 
   /* Bulk attendance */
   bulkMark: (employeeIds: string[], dayIndex: number, mark: Mark) => void;
+  /** Bulk-mark several employees across several working days (multi-date/range). */
+  bulkMarkDays: (employeeIds: string[], dayIndexes: number[], mark: Mark) => void;
 
   /* Firestore / data source */
   firestoreActive: boolean;
@@ -250,6 +252,8 @@ interface AppContextValue {
   addAdvance: (id: string, advance: Omit<Advance, 'id'>) => void;
   updateAdvance: (id: string, advanceId: string, patch: Partial<Advance>) => void;
   adjustAdvancesAgainstSalary: (id: string) => void;
+  /** Apply a specific advance recovery amount against this month's salary. */
+  applyAdvanceAdjustment: (id: string, amount: number) => void;
 
   /* Payments */
   addPayment: (id: string, payment: Omit<Payment, 'id'>) => void;
@@ -684,6 +688,35 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         addNotif({ recipient: { role: 'admin' }, type: 'attendance_correction', title: 'Attendance updated', message: `Bulk attendance applied to ${employeeIds.length} employee${employeeIds.length > 1 ? 's' : ''}.` });
         toast(`Marked ${employeeIds.length} employee${employeeIds.length > 1 ? 's' : ''}`);
       },
+      bulkMarkDays: (employeeIds, dayIndexes, mark) => {
+        const idSet = new Set(employeeIds);
+        const days = dayIndexes.filter((d) => d >= 0 && d < CURRENT_MONTH.workingDays);
+        if (employeeIds.length === 0 || days.length === 0) return;
+        const rowById = new Map<string, Mark[]>();
+        const empById = new Map<string, Employee>();
+        for (const e of employees) {
+          if (!idSet.has(e.id)) continue;
+          const base = attendanceMarks[e.id] ?? Array.from({ length: CURRENT_MONTH.workingDays }, () => 'O' as Mark);
+          const row = [...base];
+          for (const di of days) row[di] = mark;
+          rowById.set(e.id, row);
+          empById.set(e.id, { ...e, ...figuresFromMarks(row) });
+        }
+        setAttendanceMarks((prev) => {
+          const next = { ...prev };
+          rowById.forEach((row, id) => (next[id] = row));
+          return next;
+        });
+        setEmployees((emps) => emps.map((e) => empById.get(e.id) ?? e));
+        empById.forEach((e) => persistEmployee(e));
+        const first = empById.get(employeeIds[0]);
+        const branchId = first ? branchIdFor(first) : '';
+        days.forEach((di) => op(() => saveAttendanceMarksBulk({ employeeIds, branchId, dayIndex: di, mark, by: sessionLabel(session) })));
+        const entries = employeeIds.length * days.length;
+        pushAudit({ entity: 'Attendance', target: first ? first.branch : 'Bulk', field: 'Bulk attendance', oldValue: '—', newValue: `${employeeIds.length} × ${days.length} day(s) = ${entries} → ${mark}` });
+        addNotif({ recipient: { role: 'admin' }, type: 'attendance_correction', title: 'Bulk attendance applied', message: `${entries} attendance entr${entries > 1 ? 'ies' : 'y'} marked ${mark}.` });
+        toast(`Marked ${entries} attendance entr${entries > 1 ? 'ies' : 'y'}`);
+      },
 
       /* ---- Firestore / data source ---- */
       firestoreActive,
@@ -853,6 +886,37 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         addNotif({ recipient: { employeeId: id }, type: 'advance_adjusted', title: 'Advance adjusted', message: 'Your advance was adjusted against salary.', relatedId: id });
         toast('Advances adjusted against salary');
       },
+      applyAdvanceAdjustment: (id, amount) => {
+        const emp = employees.find((e) => e.id === id);
+        if (!emp || amount <= 0) return;
+        const outOf = (a: Advance) => (a.cleared ? 0 : Math.max(0, a.amount - (a.recovered ?? 0)));
+        const priorRemaining = emp.advances.reduce((s, a) => s + outOf(a), 0);
+        let left = Math.min(amount, priorRemaining);
+        // Recover oldest-first across uncleared advances.
+        const advances = [...emp.advances].reverse().map((a) => {
+          const out = outOf(a);
+          if (left <= 0 || out <= 0) return a;
+          const take = Math.min(out, left);
+          left -= take;
+          const recovered = (a.recovered ?? 0) + take;
+          return { ...a, recovered, cleared: recovered >= a.amount };
+        }).reverse();
+        const next: Employee = { ...emp, advances, advanceAdjustedThisMonth: (emp.advanceAdjustedThisMonth ?? 0) + Math.min(amount, priorRemaining) };
+        const newRemaining = advances.reduce((s, a) => s + outOf(a), 0);
+        const nextList = employees.map((e) => (e.id === id ? next : e));
+        updateEmployee(id, () => next);
+        persistEmployee(next);
+        const seId = `se-${CURRENT_MONTH.year}-${String(CURRENT_MONTH.month).padStart(2, '0')}-${id}`;
+        advances.forEach((a) => op(() => saveAdvance(id, a, outOf(a))));
+        op(() => saveAdvanceAdjustment({ id: uid('adj'), advanceId: advances.find((a) => (a.recovered ?? 0) > 0)?.id ?? 'multi', employeeId: id, salaryEntryId: seId, amountAdjusted: Math.min(amount, priorRemaining), remainingBalance: newRemaining, adjustedBy: sessionLabel(session) }));
+        // Keep a frozen salary entry in sync if one already exists.
+        if (salaryEntries.some((s) => s.employeeId === id && s.month === CURRENT_MONTH.month && s.year === CURRENT_MONTH.year)) {
+          commitSalaryEntry(next, salaryStatus(next), nextList);
+        }
+        pushAudit({ entity: 'Advance', target: `${emp.name} (${emp.id})`, field: 'Advance adjusted', oldValue: String(priorRemaining), newValue: String(newRemaining), reason: `₹${Math.min(amount, priorRemaining)} adjusted against salary` });
+        addNotif({ recipient: { employeeId: id }, type: 'advance_adjusted', title: 'Advance adjusted', message: `₹${Math.min(amount, priorRemaining).toLocaleString('en-IN')} adjusted against your salary. Remaining ₹${newRemaining.toLocaleString('en-IN')}.`, relatedId: id });
+        toast('Advance adjusted against salary');
+      },
 
       /* ---- Payments ---- */
       addPayment: (id, payment) => {
@@ -887,6 +951,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           // A salary entry is created/updated on every approve / pay / hold.
           const paymentId = status === 'paid' ? emp.payments.find((p) => p.type === 'Salary')?.id : undefined;
           commitSalaryEntry(next, salaryStatus(next), nextList, paymentId);
+          pushAudit({ entity: 'Salary', target: `${emp.name} (${emp.id})`, field: status === 'paid' ? 'Salary paid' : status === 'approved' ? 'Salary approved' : `Salary ${status}`, oldValue: emp.payrollStatus, newValue: status, reason: CURRENT_MONTH.label });
         }
         if (status === 'approved') addNotif({ recipient: { employeeId: id }, type: 'salary_approved', title: 'Salary approved', message: `${emp?.name ?? 'Your'} salary has been approved.`, relatedId: id });
         if (status === 'paid') addNotif({ recipient: { employeeId: id }, type: 'salary_paid', title: 'Salary paid', message: `${emp?.name ?? 'Your'} salary has been paid — please confirm receipt.`, relatedId: id });
@@ -916,8 +981,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       /* ---- Leave ---- */
       setLeaveStatus: (id, leaveId, status) => {
         const emp = employees.find((e) => e.id === id);
+        const leave = emp?.leaves.find((l) => l.id === leaveId);
         updateEmployee(id, (e) => recomputeLeavePaidFlags({ ...e, leaves: e.leaves.map((l) => (l.id === leaveId ? { ...l, status } : l)) }));
         if (emp) persistEmployee(recomputeLeavePaidFlags({ ...emp, leaves: emp.leaves.map((l) => (l.id === leaveId ? { ...l, status } : l)) }));
+        if (emp) pushAudit({ entity: 'Leave', target: `${emp.name} (${emp.id})`, field: status === 'approved' ? 'Leave approved' : 'Leave rejected', oldValue: leave?.status ?? 'pending', newValue: status, reason: leave?.dateLabel });
         addNotif({ recipient: { employeeId: id }, type: status === 'approved' ? 'leave_approved' : 'leave_rejected', title: status === 'approved' ? 'Leave approved' : 'Leave rejected', message: `${emp?.name ? emp.name + "'s" : 'Your'} leave request was ${status}.`, relatedId: id });
         toast(status === 'approved' ? 'Leave approved' : 'Leave rejected', status === 'approved' ? 'success' : 'info');
       },
@@ -925,8 +992,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         const emp = employees.find((e) => e.id === id);
         const newLeave = { ...leave, id: uid('leave'), paid: false };
         updateEmployee(id, (e) => recomputeLeavePaidFlags({ ...e, leaves: [...e.leaves, newLeave] }));
-        if (emp) persistEmployee(recomputeLeavePaidFlags({ ...emp, leaves: [...emp.leaves, newLeave] }));
-        toast('Leave requested');
+        if (emp) {
+          persistEmployee(recomputeLeavePaidFlags({ ...emp, leaves: [...emp.leaves, newLeave] }));
+          pushAudit({ entity: 'Leave', target: `${emp.name} (${emp.id})`, field: 'Leave applied', oldValue: '—', newValue: `${leave.days} day(s) · ${leave.type} · ${leave.dateLabel}` });
+        }
+        addNotif({ recipient: { role: 'admin' }, type: 'leave_approved', title: 'Leave submitted', message: `${emp?.name ?? 'An employee'} submitted a ${leave.days}-day ${leave.type.toLowerCase()} leave request.`, relatedId: id });
+        toast('Leave request submitted');
       },
 
       /* ---- Attendance ---- */

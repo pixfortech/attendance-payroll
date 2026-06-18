@@ -65,6 +65,7 @@ export function RecordAdvanceModal({ onClose, onSave, initial }: { onClose: () =
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
             <Chip kind="filter" onClick={() => preset(1)}>Full next month</Chip>
             <Chip kind="filter" onClick={() => preset(2)}>2 months</Chip>
+            <Chip kind="filter" onClick={() => preset(3)}>3 months</Chip>
             <Chip kind="filter" onClick={() => preset(4)}>4 months</Chip>
             <Chip kind="filter" onClick={() => setMonthly('')}>Custom</Chip>
           </div>

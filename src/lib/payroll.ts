@@ -14,8 +14,6 @@ import {
   tiffinTotal,
   buildVariableScope,
   outstandingAdvance,
-  advanceAdjustmentForMonth,
-  advanceRemaining,
   type SalaryBreakdown,
 } from '../services';
 
@@ -24,14 +22,16 @@ export function employeeTiffinTotal(employee: Employee): number {
   return tiffinTotal(employee.tiffin, employee.tiffinDays);
 }
 
-/** Advance recovered from this month's salary, per the repayment plan. */
+/** Advance recovered from this month's salary. Prefers an explicitly-applied
+ *  adjustment (from the Adjust-advance flow); otherwise 0 (the repayment
+ *  schedule is only a suggestion until applied). */
 export function employeeAdvanceAdjustment(employee: Employee): number {
-  return advanceAdjustmentForMonth(employee.advances, CURRENT_MONTH.short);
+  return employee.advanceAdjustedThisMonth ?? 0;
 }
 
-/** Remaining advance balance after this month's recovery. */
+/** Remaining advance balance (outstanding principal net of what's recovered). */
 export function employeeAdvanceRemaining(employee: Employee): number {
-  return advanceRemaining(employee.advances, CURRENT_MONTH.short);
+  return outstandingAdvance(employee);
 }
 
 /** Full salary breakdown for an employee in the running month. */

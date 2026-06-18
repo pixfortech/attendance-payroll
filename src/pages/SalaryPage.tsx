@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { Avatar, Badge, Button, Card, Icon, IconButton, ResponsiveTable, Select, Tabs, useConfirm, useToast, type Column } from '../components/ui';
 import { SalarySlip } from '../components/payroll/SalarySlip';
 import { RecordPaymentModal } from '../components/payroll/RecordPaymentModal';
+import { AdvanceAdjustModal } from '../components/payroll/AdvanceAdjustModal';
 import { SALARY_STATUS_META } from '../components/payroll/statusMeta';
 import { useAppStore } from '../store/AppStore';
-import { employeeBreakdown, salaryStatus, canApproveSalary, isActiveEmployee } from '../lib/payroll';
+import { employeeAdvanceAdjustment, employeeAdvanceRemaining, employeeBreakdown, salaryStatus, canApproveSalary, isActiveEmployee } from '../lib/payroll';
 import { branchFilterOptions, employeeInBranch } from '../lib/branches';
 import { downloadCsv } from '../lib/download';
+import { downloadPayslip } from '../lib/payslip';
 import { formatINR } from '../services';
 import { CURRENT_MONTH } from '../data';
 import type { Employee, SalaryStatus } from '../types';
@@ -14,13 +16,20 @@ import type { Employee, SalaryStatus } from '../types';
 const mono = { fontFamily: 'var(--font-mono)' as const };
 
 export function SalaryPage() {
-  const { employees, branches, setPayrollStatus, addPayment, approveAllPending, salaryEntries } = useAppStore();
+  const { employees, branches, setPayrollStatus, addPayment, approveAllPending, salaryEntries, logAudit } = useAppStore();
   const confirm = useConfirm();
   const toast = useToast();
   const [tab, setTab] = useState<'all' | 'pending' | 'approved' | 'paid'>('all');
   const [branch, setBranch] = useState('');
   const [slip, setSlip] = useState<Employee | null>(null);
   const [payFor, setPayFor] = useState<Employee | null>(null);
+  const [adjustFor, setAdjustFor] = useState<Employee | null>(null);
+
+  const onDownload = (r: Employee) => {
+    downloadPayslip(r);
+    logAudit({ entity: 'Salary', target: `${r.name} (${r.id})`, field: 'Payslip downloaded', oldValue: '—', newValue: CURRENT_MONTH.label });
+    toast(`Payslip downloaded for ${r.name}`);
+  };
 
   const active = employees.filter(isActiveEmployee);
   // Prefer a frozen Firestore salary entry (written on approval/payment) over a
@@ -37,6 +46,8 @@ export function SalaryPage() {
       deductionTotal: se?.deductionTotal ?? b.deductionTotal,
       tiffinTotal: se?.tiffinCtc ?? b.tiffinTotal,
       netSalary: se?.netPayable ?? b.netSalary,
+      advanceAdjusted: se?.advanceAdjustment ?? employeeAdvanceAdjustment(r),
+      advanceRemaining: employeeAdvanceRemaining(r),
     };
   };
   const inTab = (e: Employee) => {
@@ -57,10 +68,10 @@ export function SalaryPage() {
 
   const exportCsv = () =>
     downloadCsv(`salary-${CURRENT_MONTH.short}.csv`, [
-      ['Employee', 'ID', 'Branch', 'Gross payable', 'Worked', 'Leave used', 'Free leave', 'Deduction', 'Tiffin CTC', 'Net payable', 'Status'],
+      ['Employee', 'ID', 'Branch', 'Gross payable', 'Worked', 'Leave used', 'Free leave', 'Deduction', 'Tiffin CTC', 'Advance adjusted', 'Advance remaining', 'Net payable', 'Status'],
       ...rows.map((r) => {
         const f = figures(r);
-        return [r.name, r.id, r.branch, r.salaryMissing ? 'missing' : f.gross, f.worked, f.leaveUsed, f.freeLeaveAllowed, f.deductionTotal, f.tiffinTotal, f.netSalary, SALARY_STATUS_META[salaryStatus(r)].label];
+        return [r.name, r.id, r.branch, r.salaryMissing ? 'missing' : f.gross, f.worked, f.leaveUsed, f.freeLeaveAllowed, f.deductionTotal, f.tiffinTotal, f.advanceAdjusted, f.advanceRemaining, f.netSalary, SALARY_STATUS_META[salaryStatus(r)].label];
       }),
     ]);
 
@@ -73,6 +84,8 @@ export function SalaryPage() {
           <Button variant="secondary" size="sm" full={full} disabled={!canApproveSalary(r)} title={!canApproveSalary(r) ? 'Needs at least 1 worked day or a salary request' : undefined} iconLeft={<Icon name="badgeCheck" size={14} />} onClick={() => setPayrollStatus(r.id, 'approved')}>Approve</Button>
         )}
         {(s === 'pending' || s === 'requested' || s === 'approved') && <Button variant="ghost" size="sm" full={full} onClick={() => setPayrollStatus(r.id, 'hold')}>Hold</Button>}
+        {!full && <IconButton icon="banknote" label="Adjust advance" size="sm" onClick={() => setAdjustFor(r)} />}
+        {!full && <IconButton icon="download" label="Download payslip" size="sm" onClick={() => onDownload(r)} />}
         {!full && <IconButton icon="eye" label="View slip" size="sm" onClick={() => setSlip(r)} />}
       </div>
     );
@@ -105,6 +118,8 @@ export function SalaryPage() {
     },
     { key: 'ded', header: 'Deduction', align: 'right', render: (r) => { const d = figures(r).deductionTotal; return <span style={{ ...mono, fontWeight: d > 0 ? 700 : 400, color: d > 0 ? 'var(--coral-600)' : 'var(--text-body)' }}>{d > 0 ? '−' + formatINR(d) : '—'}</span>; } },
     { key: 'tiffin', header: 'Tiffin CTC', align: 'right', render: (r) => { const t = figures(r).tiffinTotal; return <span style={{ ...mono, color: t > 0 ? 'var(--blue-600)' : 'var(--text-subtle)' }}>{t > 0 ? '+' + formatINR(t) : '—'}</span>; } },
+    { key: 'advAdj', header: 'Advance adj.', align: 'right', render: (r) => { const a = figures(r).advanceAdjusted; return <span style={{ ...mono, color: a > 0 ? 'var(--coral-600)' : 'var(--text-subtle)' }}>{a > 0 ? '−' + formatINR(a) : '—'}</span>; } },
+    { key: 'advRem', header: 'Advance rem.', align: 'right', render: (r) => { const a = figures(r).advanceRemaining; return <span style={{ ...mono, color: a > 0 ? 'var(--text-body)' : 'var(--text-subtle)' }}>{a > 0 ? formatINR(a) : '—'}</span>; } },
     { key: 'net', header: 'Net payable', align: 'right', render: (r) => (r.salaryMissing ? <span style={{ color: 'var(--text-subtle)' }}>—</span> : <span style={{ ...mono, fontWeight: 700, color: 'var(--text-strong)' }}>{formatINR(figures(r).netSalary)}</span>) },
     { key: 'status', header: 'Status', render: (r) => { const s = SALARY_STATUS_META[salaryStatus(r)]; return <Badge variant={s.variant} dot>{s.label}</Badge>; } },
     { key: 'actions', header: 'Actions', align: 'right', render: (r) => <Actions r={r} /> },
@@ -137,7 +152,7 @@ export function SalaryPage() {
           columns={columns}
           rows={rows}
           rowKey={(r) => r.id}
-          minWidth={1060}
+          minWidth={1240}
           emptyText={active.length === 0 ? 'No employees yet — import employees to begin payroll.' : 'No salaries match this filter.'}
           mobileCard={(r) => {
             const b = figures(r);
@@ -167,9 +182,15 @@ export function SalaryPage() {
                   <Kv label="Worked" value={`${b.worked} d`} />
                   <Kv label="Deduction" value={b.deductionTotal > 0 ? '−' + formatINR(b.deductionTotal) : '—'} color={b.deductionTotal > 0 ? 'var(--coral-600)' : undefined} />
                   <Kv label="Tiffin CTC" value={b.tiffinTotal > 0 ? '+' + formatINR(b.tiffinTotal) : '—'} color={b.tiffinTotal > 0 ? 'var(--blue-600)' : undefined} />
+                  <Kv label="Advance adj." value={b.advanceAdjusted > 0 ? '−' + formatINR(b.advanceAdjusted) : '—'} color={b.advanceAdjusted > 0 ? 'var(--coral-600)' : undefined} />
+                  <Kv label="Advance rem." value={b.advanceRemaining > 0 ? formatINR(b.advanceRemaining) : '—'} />
                 </div>
                 <Actions r={r} full />
-                <Button variant="secondary" full size="sm" iconLeft={<Icon name="eye" size={15} />} onClick={() => setSlip(r)}>View salary slip</Button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button variant="secondary" full size="sm" iconLeft={<Icon name="eye" size={15} />} onClick={() => setSlip(r)}>Payslip</Button>
+                  <Button variant="secondary" full size="sm" iconLeft={<Icon name="download" size={15} />} onClick={() => onDownload(r)}>Download</Button>
+                  <Button variant="tonal" full size="sm" iconLeft={<Icon name="banknote" size={15} />} onClick={() => setAdjustFor(r)}>Advance</Button>
+                </div>
               </div>
             );
           }}
@@ -189,6 +210,7 @@ export function SalaryPage() {
           }}
         />
       )}
+      {adjustFor && <AdvanceAdjustModal employee={adjustFor} onClose={() => setAdjustFor(null)} />}
     </div>
   );
 }

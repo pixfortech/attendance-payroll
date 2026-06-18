@@ -53,6 +53,8 @@ export interface Advance {
   receipt?: string | null;
   /** Adjusted/recovered against salary. */
   cleared: boolean;
+  /** Amount already recovered against salary (for partial adjustments). */
+  recovered?: number;
   /** Optional repayment plan + generated schedule. */
   plan?: AdvancePlan;
   schedule?: AdvanceAdjustment[];
@@ -181,6 +183,8 @@ export interface Employee {
   archived?: boolean;
   /** Optional note surfaced on the salary slip (e.g. new-joiner rule). */
   note?: string;
+  /** Advance recovered against THIS month's salary (set by the adjust-advance flow). */
+  advanceAdjustedThisMonth?: number;
 
   /* Ledgers */
   advances: Advance[];

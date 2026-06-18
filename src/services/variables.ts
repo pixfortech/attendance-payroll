@@ -35,9 +35,10 @@ export const FORMULA_VARIABLES: PayrollVariable[] = [
 
 export const FORMULA_VARIABLE_KEYS = FORMULA_VARIABLES.map((v) => v.key);
 
-/** Outstanding (uncleared) advance balance for an employee. */
+/** Outstanding (uncleared) advance balance for an employee, net of any amount
+ *  already recovered against salary. */
 export function outstandingAdvance(employee: Employee): number {
-  return employee.advances.filter((a) => !a.cleared).reduce((sum, a) => sum + a.amount, 0);
+  return employee.advances.filter((a) => !a.cleared).reduce((sum, a) => sum + Math.max(0, a.amount - (a.recovered ?? 0)), 0);
 }
 
 /** Build the safe variable scope passed to {@link evaluateFormula}. */

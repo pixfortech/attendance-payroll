@@ -281,4 +281,29 @@ describe('App — smoke & navigation', () => {
     render(<App />);
     expect(screen.getByRole('button', { name: 'Dashboard' })).toBeTruthy();
   });
+
+  it('has a dedicated Leaves menu that opens the leave requests page', () => {
+    render(<App />);
+    fireEvent.click(within(screen.getByRole('complementary')).getByText('Leaves'));
+    expect(screen.getByRole('heading', { level: 1, name: 'Leaves' })).toBeTruthy();
+    expect(screen.getByText('Leave requests')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Apply leave/ })).toBeTruthy();
+  });
+
+  it('salary page has advance columns, download + adjust-advance actions', () => {
+    window.history.pushState({}, '', '/salary');
+    render(<App />);
+    expect(screen.getByText('Advance adj.')).toBeTruthy();
+    expect(screen.getByText('Advance rem.')).toBeTruthy();
+    expect(screen.getAllByLabelText('Adjust advance').length).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText('Download payslip').length).toBeGreaterThan(0);
+  });
+
+  it('attendance grid has quick "today" bulk buttons', () => {
+    window.history.pushState({}, '', '/attendance');
+    render(<App />);
+    expect(screen.getByRole('button', { name: 'All present' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'All absent' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'All half-day' })).toBeTruthy();
+  });
 });

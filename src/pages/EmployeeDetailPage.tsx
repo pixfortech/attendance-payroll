@@ -24,6 +24,7 @@ import {
   type TabItem,
 } from '../components/ui';
 import { RecordAdvanceModal } from '../components/payroll/RecordAdvanceModal';
+import { AdvanceAdjustModal } from '../components/payroll/AdvanceAdjustModal';
 import { RecordPaymentModal } from '../components/payroll/RecordPaymentModal';
 import { EmployeeFormModal } from '../components/payroll/EmployeeFormModal';
 import { CONFIRMATION_META } from '../components/payroll/statusMeta';
@@ -289,15 +290,10 @@ function SalaryLeavePanel({ emp }: { emp: Employee }) {
 
 /* ---------- Advance ---------- */
 function AdvancePanel({ emp, onAdd }: { emp: Employee; onAdd: () => void }) {
-  const { updateAdvance, adjustAdvancesAgainstSalary } = useAppStore();
-  const confirm = useConfirm();
+  const { updateAdvance } = useAppStore();
   const [editAdv, setEditAdv] = useState<Employee['advances'][number] | null>(null);
+  const [adjustOpen, setAdjustOpen] = useState(false);
   const outstanding = employeeOutstandingAdvance(emp);
-
-  const adjust = async () => {
-    const ok = await confirm({ title: 'Adjust advances against salary?', message: `${formatINR0(outstanding)} will be marked recovered against ${emp.name}'s salary.`, confirmLabel: 'Adjust now', tone: 'primary', icon: 'calculator' });
-    if (ok) adjustAdvancesAgainstSalary(emp.id);
-  };
 
   const columns: Column<Employee['advances'][number]>[] = [
     { key: 'date', header: 'Date', render: (a) => a.date },
@@ -316,7 +312,7 @@ function AdvancePanel({ emp, onAdd }: { emp: Employee; onAdd: () => void }) {
         <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 4 }}>Recoverable against upcoming salary</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginTop: 18 }}>
           <Button variant="primary" full iconLeft={<Icon name="plus" size={16} />} onClick={onAdd}>Record advance</Button>
-          <Button variant="secondary" full iconLeft={<Icon name="calculator" size={16} />} disabled={outstanding === 0} onClick={adjust}>Adjust against salary</Button>
+          <Button variant="secondary" full iconLeft={<Icon name="calculator" size={16} />} disabled={outstanding === 0} onClick={() => setAdjustOpen(true)}>Adjust against salary</Button>
         </div>
       </Card>
       <Card title="Advance ledger" subtitle="Employee-wise advance history" padding="0">
@@ -332,6 +328,7 @@ function AdvancePanel({ emp, onAdd }: { emp: Employee; onAdd: () => void }) {
           }}
         />
       )}
+      {adjustOpen && <AdvanceAdjustModal employee={emp} onClose={() => setAdjustOpen(false)} />}
     </div>
   );
 }

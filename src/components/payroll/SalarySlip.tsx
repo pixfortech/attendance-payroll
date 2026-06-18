@@ -1,6 +1,7 @@
 import { Avatar, Badge, Button, Icon, IconButton } from '../ui';
 import { formatINR, formatSignedINR } from '../../services';
 import { employeeBreakdown, employeeAdvanceRemaining, salaryStatus } from '../../lib/payroll';
+import { downloadPayslip } from '../../lib/payslip';
 import { CURRENT_MONTH } from '../../data';
 import { CONFIRMATION_META, SALARY_STATUS_META } from './statusMeta';
 import type { Employee } from '../../types';
@@ -107,6 +108,7 @@ export function SalarySlip({ employee, onClose }: { employee: Employee; onClose:
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>Earnings &amp; deductions</div>
             <LineItem label="Gross monthly salary" value={employee.salaryMissing ? '—' : formatINR(employee.salary)} />
             <LineItem label="Worked days" sub={`${employee.worked} of ${CURRENT_MONTH.workingDays} · daily ${formatINR(b.daily)}`} value={`${employee.worked} d`} />
+            <LineItem label="Attendance" sub={`${employee.daysPresent} present · ${employee.daysHalf} half · ${employee.daysAbsent} absent`} value={`${employee.daysPresent}P / ${employee.daysHalf}H / ${employee.daysAbsent}A`} />
             <LineItem label="Paid leave" sub={`${employee.leaveUsed} used · ${b.freeLeaveAllowed} free / month`} value={`${employee.leaveUsed} / ${b.freeLeaveAllowed}`} />
             <LineItem
               label="Leave deduction"
@@ -149,8 +151,8 @@ export function SalarySlip({ employee, onClose }: { employee: Employee; onClose:
             <Button variant="secondary" full iconLeft={<Icon name="printer" size={16} />} onClick={() => window.print()}>
               Print
             </Button>
-            <Button variant="primary" full iconLeft={<Icon name="download" size={16} />} onClick={() => window.print()}>
-              Download PDF
+            <Button variant="primary" full iconLeft={<Icon name="download" size={16} />} onClick={() => downloadPayslip(employee)}>
+              Download
             </Button>
           </div>
         </div>

@@ -445,6 +445,15 @@ Daily attendance can be captured several ways; the rules live in one tested plac
 
 > **Future plan:** selfie/photo proof via Firebase Storage, optional device biometrics, and external biometric-device integration — all behind the secure backend (custom token + role-based rules). Current Master-Admin Firestore security is unchanged.
 
+### 10. Leaves, payslips & advance adjustment (Phase 3B fix pack)
+
+- **Leaves** is a dedicated menu (`/leaves`): admin sees all requests, a manager their branch, an employee their own (manager/employee via their portals). **Apply leave** uses a **start/end date range** with a **live impact preview** — daily salary, free-leave available, deductible days and the estimated deduction (`src/lib/leaveCalc.ts`). Rules respected: first 3 months (or <15 worked days / resigned) get **no free leave**; otherwise **4 free leaves/month**, no carry-forward; basis-aware daily rate. Approve/reject from the page.
+- **Bulk attendance** now supports **select-all**, **single date or a date range**, all mark types (present/absent/half/paid-leave/weekly-off-clear), a **confirmation summary** (branch · employees · dates · mark · total entries) and **quick "today"** buttons (All present / All absent / All half). Worked days recalculate immediately; manager actions stay branch-scoped.
+- **Salary & payslip use actual attendance.** The salary table adds **Advance adjusted** and **Advance remaining** columns, plus row actions **View / Download payslip** and **Adjust advance**. The **downloaded payslip is a filled, printable HTML** (`src/lib/payslip.ts`) — Ganguram heading, employee/branch, basis, daily rate, present/half/leave/absent days, free-leave used, deductions, gross, tiffin, **advance adjusted + remaining**, net payable, status and a disclaimer (print → Save as PDF). Frozen/approved salaries are served from the saved salary run.
+- **Advance adjustment** is a proper modal: shows net payable, total advance, already-adjusted, remaining and a **suggested amount from the saved repayment terms**, with options (terms / fixed monthly / % of salary / full / custom / skip) and validation (≤ remaining, ≤ net unless admin override, positive). It records a recovery (`recovered`), updates the remaining balance, writes an `advanceAdjustments` record + audit + notification, and the slip shows adjusted-this-month + remaining. Advances are still **created with repayment terms** (full next month / 2 / 3 / 4 months / fixed / custom) and a clearing preview.
+
+All changes write through to Firestore with the localStorage fallback; Master-Admin rules are unchanged; no plain PIN is stored.
+
 ---
 
 ## Design system

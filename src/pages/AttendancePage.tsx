@@ -33,7 +33,7 @@ const METHODS: { icon: IconName; name: string; desc: string; status: string; ton
 ];
 
 export function AttendancePage() {
-  const { employees, branches, checkins, attendanceMarks, setAttendanceMark, pendingSync, online, syncPendingAttendance, approveCheckin, rejectCheckin, reviewCheckinHalf } = useAppStore();
+  const { employees, branches, checkins, attendanceMarks, setAttendanceMark, bulkMarkDays, pendingSync, online, syncPendingAttendance, approveCheckin, rejectCheckin, reviewCheckinHalf } = useAppStore();
   const isMobile = useIsMobile();
   const [view, setView] = useState('grid');
   const [branch, setBranch] = useState(''); // '' = All branches
@@ -47,6 +47,10 @@ export function AttendancePage() {
   const reviewCount = checkins.filter((c) => vStatus(c) === 'needs_review').length;
   const cycle = (empId: string, dayIndex: number, current: Mark) => setAttendanceMark(empId, dayIndex, nextMark(current));
   const reviewActions = { onApprove: approveCheckin, onReject: rejectCheckin, onHalf: reviewCheckinHalf };
+  // Quick "today" bulk marking for the currently-shown staff.
+  const todayIdx = Math.min(DAYS - 1, Math.max(0, new Date().getDate() - 1));
+  const gridIds = gridStaff.map((s) => s.id);
+  const markToday = (m: Mark) => { if (gridIds.length) bulkMarkDays(gridIds, [todayIdx], m); };
 
   const exportGrid = () =>
     downloadCsv(`attendance-${branch || 'all'}-${CURRENT_MONTH.short}.csv`, [
@@ -79,6 +83,14 @@ export function AttendancePage() {
         {view === 'grid' && <Button variant="secondary" iconLeft={<Icon name="download" size={16} />} onClick={exportGrid}>Export</Button>}
       </div>
 
+      {view === 'grid' && gridStaff.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>Quick (today):</span>
+          <Button variant="secondary" size="sm" onClick={() => markToday('P')}>All present</Button>
+          <Button variant="secondary" size="sm" onClick={() => markToday('A')}>All absent</Button>
+          <Button variant="secondary" size="sm" onClick={() => markToday('H')}>All half-day</Button>
+        </div>
+      )}
       {view === 'grid' && (isMobile ? <MonthGridMobile staff={gridStaff} branch={branchName} showBranch={!branch} onCycle={cycle} /> : <MonthGridDesktop staff={gridStaff} branch={branchName} showBranch={!branch} onCycle={cycle} />)}
       {view === 'proof' && <ProofView checkins={checkins} actions={reviewActions} />}
       {view === 'methods' && <MethodsView branch={branchName} />}

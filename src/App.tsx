@@ -8,6 +8,7 @@ import { EmployeeMasterPage } from './pages/EmployeeMasterPage';
 import { EmployeeDetailPage } from './pages/EmployeeDetailPage';
 import { BranchesPage } from './pages/BranchesPage';
 import { AttendancePage } from './pages/AttendancePage';
+import { LeavePage } from './pages/LeavePage';
 import { TiffinPage } from './pages/TiffinPage';
 import { SalaryPage } from './pages/SalaryPage';
 import { AdvancesPage } from './pages/AdvancesPage';
@@ -72,6 +73,7 @@ export function App() {
                   <Route path="/employees/:id" element={<EmployeeDetailPage />} />
                   <Route path="/branches" element={<BranchesPage />} />
                   <Route path="/attendance" element={<AttendancePage />} />
+                  <Route path="/leaves" element={<LeavePage />} />
                   <Route path="/tiffin" element={<TiffinPage />} />
                   <Route path="/salary" element={<SalaryPage />} />
                   <Route path="/advances" element={<AdvancesPage />} />
