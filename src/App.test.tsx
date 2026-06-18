@@ -381,4 +381,76 @@ describe('App — smoke & navigation', () => {
     expect(screen.getAllByText('Beadon Street').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Baranagar').length).toBeGreaterThan(0);
   });
+
+  /* ---- Login + Portal UX (Parts J–M) ---- */
+  it('login shows a SINGLE admin email/password form (no duplicate fields)', () => {
+    localStorage.removeItem('gng.v1.session');
+    window.history.pushState({}, '', '/login');
+    const { container } = render(<App />); // Admin is the default role
+    expect(container.querySelectorAll('input[type="email"]').length).toBe(1);
+    expect(container.querySelectorAll('input[type="password"]').length).toBe(1);
+    expect(screen.getByRole('button', { name: /Sign in to admin suite/ })).toBeTruthy();
+  });
+
+  it('staff login is PIN-first with password offered only as a secondary option', () => {
+    localStorage.removeItem('gng.v1.session');
+    window.history.pushState({}, '', '/login');
+    render(<App />);
+    fireEvent.click(screen.getByText('Employee'));
+    expect(screen.getByRole('button', { name: /Continue/ })).toBeTruthy(); // primary → PIN
+    expect(screen.getByText(/Log in with password instead/i)).toBeTruthy(); // secondary
+    fireEvent.change(screen.getByLabelText(/ID or mobile/), { target: { value: 'GNG-DK-0156' } });
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    expect(screen.getByText('Enter your PIN')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '1' })).toBeTruthy(); // phone-lock keypad
+  });
+
+  it('admin previewing the employee portal gets a non-trapping "Back to admin"', () => {
+    window.history.pushState({}, '', '/portal'); // admin session seeded in beforeEach
+    render(<App />);
+    expect(screen.getByText('Employee portal')).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /Back to admin/ }).length).toBeGreaterThan(0);
+  });
+
+  it('employee portal home shows quick actions; sub-sections have a Back button', () => {
+    localStorage.removeItem('gng.v1.session');
+    window.history.pushState({}, '', '/login');
+    render(<App />);
+    fireEvent.click(screen.getByText('Employee'));
+    fireEvent.change(screen.getByLabelText(/ID or mobile/), { target: { value: 'GNG-DK-0156' } });
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    typePin('246813');
+    expect(screen.getByText('Employee portal')).toBeTruthy();
+    expect(screen.getByText('Quick actions')).toBeTruthy();
+    fireEvent.click(screen.getAllByText('Tiffin')[0]); // desktop pill nav → tiffin section
+    expect(screen.getByRole('button', { name: /Portal home/ })).toBeTruthy();
+  });
+
+  it('employee PIN change blocks weak PINs, flags mismatches, and stores NO plain PIN', () => {
+    localStorage.removeItem('gng.v1.session');
+    window.history.pushState({}, '', '/login');
+    render(<App />);
+    fireEvent.click(screen.getByText('Employee'));
+    fireEvent.change(screen.getByLabelText(/ID or mobile/), { target: { value: 'GNG-DK-0156' } });
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    typePin('246813');
+    fireEvent.click(screen.getAllByText('Profile')[0]); // desktop pill nav → profile
+    fireEvent.click(screen.getByRole('button', { name: /Change PIN/ }));
+    const pw = () => Array.from(document.querySelectorAll('input[type="password"]')) as HTMLInputElement[];
+    // weak PIN blocked
+    fireEvent.change(pw()[0], { target: { value: '1234' } });
+    fireEvent.change(pw()[1], { target: { value: '1234' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save PIN/ }));
+    expect(screen.getByText(/too easy to guess/i)).toBeTruthy();
+    // mismatch flagged
+    fireEvent.change(pw()[0], { target: { value: '836194' } });
+    fireEvent.change(pw()[1], { target: { value: '836195' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save PIN/ }));
+    expect(screen.getByText(/do not match/i)).toBeTruthy();
+    // success → the entered PIN is never persisted to storage
+    fireEvent.change(pw()[0], { target: { value: '836194' } });
+    fireEvent.change(pw()[1], { target: { value: '836194' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save PIN/ }));
+    expect(localStorage.getItem('gng.v1.employees') ?? '').not.toContain('836194');
+  });
 });

@@ -22,7 +22,7 @@ Salary tracking is the core. Attendance is intelligent and future-ready. Everyth
 6. [Custom payroll formula builder](#custom-payroll-formula-builder)
 7. [Advance money tracker](#advance-money-tracker)
 8. [Payment tracking &amp; received confirmation](#payment-tracking--received-confirmation)
-9. [Employee login portal](#employee-login-portal)
+9. [Login &amp; employee portal](#login--employee-portal)
 10. [Reports](#reports)
 11. [Tech stack &amp; architecture](#tech-stack--architecture)
 12. [Repository &amp; branch structure](#repository--branch-structure)
@@ -98,6 +98,35 @@ If the employee is **not eligible**, every leave/absent day is deductible.
 
 This logic lives in reusable service functions (see [architecture](#tech-stack--architecture)), not hardcoded in UI components.
 
+### Net payable formula (one shared result)
+
+The salary table, salary slip, downloaded payslip, dashboard, reports and the
+employee portal all read from **one shared result** (`computeSalary` /
+`employeeBreakdown` in `src/lib/salaryCalc.ts` + `src/lib/payroll.ts`) — no view
+recomputes salary or tiffin on its own. It exposes: `monthlySalary`, `dailyRate`,
+`workedDays`, `presentDays`, `halfDays`, `leaveUsed`, `freeLeaveAvailable`,
+`deduction`, **`grossPayableBeforeTiffin`**, **`tiffinCTC`**, `advanceAdjusted`,
+`advanceRemaining` and **`netPayableAfterTiffin`**.
+
+```
+Gross payable (before tiffin) = dailyRate × payableDays
+Net payable (after tiffin)    = Gross payable + Tiffin CTC − Advance adjusted
+                                + other earnings − other deductions
+```
+
+> **Tiffin is included in net payable** (current business rule) but is **also
+> shown in its own column/line** so it stays reportable. Example: gross
+> **₹5,999.94** + tiffin **₹2,880** = net **₹8,879.94** (− ₹1,000 advance →
+> **₹7,879.94**).
+
+The **Salary table** columns, in order: **Employee · Salary · Worked ·
+Leave (used/free) · Deduction · Tiffin CTC · Advance adj. · Advance rem. ·
+Gross payable · Net payable · Status · Actions**. The Actions column is **pinned
+to the right** (sticky) and compacted so its buttons never clip; on mobile each
+row becomes a card. An approved/frozen salary that no longer matches current
+attendance/tiffin shows a **“Needs recalculation”** hint (separate from the
+status badge) with a **Recalculate** action.
+
 ---
 
 ## Attendance logic
@@ -119,7 +148,7 @@ Employees request leave from their portal; admin/manager approves or rejects. Pa
 
 ## Tiffin / food allowance logic
 
-- Tiffin is **never a deduction**. It is a **separate company-paid CTC** amount paid **on top of** salary — it **never increases or reduces net salary payable**.
+- Tiffin is **never a deduction**. It is a **company-paid CTC** paid **on top of** the attendance-based salary. Per the current business rule it is **included in the net payable total**, but it is always **shown as its own column/line** so it stays separately reportable (see [Net payable formula](#net-payable-formula-one-shared-result)).
 - It is taken **daily** by employees at their respective branches.
 - Admin defines **custom labels and amounts**, e.g. *Breakfast ₹60* and *Lunch / Dinner ₹100*. Amounts are fully variable and customisable.
 - Tiffin is **separately trackable and reportable**.
@@ -141,7 +170,7 @@ Every view (Tiffin page, Salary table, payslip, dashboard, reports and the emplo
 - **Per employee** (Employee Detail → Tiffin): enable/disable tiffin, add/edit/remove labels with per-label amounts, half-day eligibility, live per-day rate, and a note when the company defaults are in use.
 - **Bulk** (Tiffin page → *Bulk tiffin*): scope by branch (or all), then enable / disable / add a day / remove a day / reset days. Every bulk change is written to the **audit log**.
 - **Auto-mark from attendance** (Tiffin page): recompute every active employee's tiffin days from the month's attendance, with a confirmation summary.
-- **Employee portal**: each employee sees their own tiffin days, per-day rate, item labels and total, with a clear *“paid separately on top of salary — not part of net”* note. Employees only ever see their own data.
+- **Employee portal**: each employee sees their own tiffin days, per-day rate, item labels and total, shown for reference on top of salary. Employees only ever see their own data.
 
 ---
 
@@ -218,13 +247,42 @@ Every payment becomes part of a **permanent, employee-wise payment ledger** with
 
 ---
 
-## Employee login portal
+## Login &amp; employee portal
 
-The foundation for employee self-service access. Once enabled per employee, they can view:
+### Login (one screen, role-aware)
 
-- Attendance · Salary history · Advance history · Tiffin / food allowance history
-- Payment receipts · Leave status · Salary slips
-- Pending payment confirmations · Company notices
+A single `/login` screen with a clear **Admin · Manager · Employee** role choice:
+
+- **Admin** signs in with **one** email + password form, verified **once** on this
+  screen (Firebase Auth when configured; any credentials in demo mode) — there is
+  **no second email/password page**.
+- **Manager / Employee** use a **PIN-first**, phone-lock-style flow: ID/mobile →
+  **PIN dots + numeric keypad + backspace + submit** (6 digits auto-submit).
+  Password is offered only as a **secondary** *“Log in with password instead”*
+  link, and is hidden when an account disallows the fallback.
+- **PINs are never stored** in plain text (or hashed) on the client/Firestore —
+  weak/sequential PINs are blocked and secure hashing + verification is a
+  documented backend TODO. Admins **set/reset** a PIN from *Employee Master →
+  Login access*; **employees can change their own PIN** from the portal Profile
+  (new + confirm, 4/6-digit, weak-PIN blocking).
+
+### Employee portal (professional dashboard)
+
+A compact, mobile-first dashboard with sections **Home · Attendance · Leave ·
+Salary · Payments · Advances · Tiffin · Profile**:
+
+- **Home** shows worked days, free-leave left, tiffin CTC, advance balance, the
+  live **net payable (incl. tiffin)** breakdown, pending payment confirmations,
+  notices, and a **Quick actions** grid linking to every sub-section.
+- **Salary** (gross → tiffin → net, with view/download slip), **Advances**
+  (balance + history → repayment-schedule detail), **Tiffin** (days, per-day,
+  items) and **Payments** (receipts) each have their own section.
+- Every sub-section has a **Back to portal home** button; the browser Back button
+  and direct-URL access fall back safely to `/portal`.
+- If an **admin/manager opens the portal as a preview**, a banner + **“Back to
+  admin”** button keep them from being trapped (returns without signing out).
+- **Data scoping:** an employee only ever sees **their own** attendance, salary,
+  advances, leave, tiffin and receipts; managers are scoped to their branch.
 
 Employees can **confirm payments** and **request leave** from their own login.
 

@@ -38,12 +38,14 @@ function readExpiredFlag(): boolean {
 export function LoginPage() {
   const navigate = useNavigate();
   const { employees, branches, login } = useAppStore();
-  const { configured } = useAuth();
+  const { configured, signIn } = useAuth();
 
   const [role, setRole] = useState<Role>('admin');
-  // Admin (Firebase) credentials
-  const [email, setEmail] = useState('demo@ganguram.in');
-  const [adminPassword, setAdminPassword] = useState('demo');
+  // Admin (Firebase) credentials — entered ONCE here (no separate re-entry page)
+  const [email, setEmail] = useState(configured ? '' : 'demo@ganguram.in');
+  const [adminPassword, setAdminPassword] = useState(configured ? '' : 'demo');
+  const [adminError, setAdminError] = useState<string | null>(null);
+  const [adminBusy, setAdminBusy] = useState(false);
   // Manager / Employee
   const [step, setStep] = useState<PortalStep>('identify');
   const [identifier, setIdentifier] = useState('');
@@ -161,19 +163,38 @@ export function LoginPage() {
     grantPortal(user); // DEMO password fallback — backend will verify a real credential.
   };
 
-  const signInAdmin = () => {
-    setError(null);
-    if (configured) {
-      navigate('/admin-login'); // Admin keeps Firebase Auth
+  // Admin signs in ONCE on this screen. With Firebase configured we verify the
+  // email/password here (no redirect to a second email/password page); in demo
+  // mode any credentials enter the suite.
+  const signInAdmin = async () => {
+    setAdminError(null);
+    if (!configured) {
+      login({ role: 'admin', name: 'Master Admin' });
+      navigate('/');
       return;
     }
-    login({ role: 'admin', name: 'Master Admin' });
-    navigate('/');
+    setAdminBusy(true);
+    try {
+      await signIn(email.trim(), adminPassword);
+      login({ role: 'admin', name: email.trim() || 'Master Admin' });
+      navigate('/');
+    } catch (err) {
+      const code = (err as { code?: string })?.code ?? '';
+      setAdminError(
+        code.includes('invalid') || code.includes('wrong-password') || code.includes('user-not-found')
+          ? 'Incorrect email or password.'
+          : code.includes('too-many-requests')
+            ? 'Too many attempts — try again later.'
+            : (err as Error).message || 'Sign-in failed.',
+      );
+    } finally {
+      setAdminBusy(false);
+    }
   };
 
   const onAdminSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    signInAdmin();
+    void signInAdmin();
   };
 
   return (
@@ -245,7 +266,7 @@ export function LoginPage() {
           <div style={{ width: 36, height: 3, borderRadius: 'var(--radius-pill)', background: 'var(--brand-accent)', marginTop: 12 }} />
 
           {role === 'admin' ? (
-            <AdminForm email={email} password={adminPassword} onEmail={setEmail} onPassword={setAdminPassword} onSubmit={onAdminSubmit} configured={configured} />
+            <AdminForm email={email} password={adminPassword} onEmail={(v) => { setEmail(v); setAdminError(null); }} onPassword={(v) => { setAdminPassword(v); setAdminError(null); }} onSubmit={onAdminSubmit} configured={configured} error={adminError} busy={adminBusy} />
           ) : (
             <PortalAuth
               role={role}
@@ -278,19 +299,20 @@ export function LoginPage() {
   );
 }
 
-/* ---------- Admin (Firebase email/password) ---------- */
-function AdminForm({ email, password, onEmail, onPassword, onSubmit, configured }: { email: string; password: string; onEmail: (v: string) => void; onPassword: (v: string) => void; onSubmit: (e: React.FormEvent) => void; configured: boolean }) {
+/* ---------- Admin (Firebase email/password) — a SINGLE form, no re-entry ---------- */
+function AdminForm({ email, password, onEmail, onPassword, onSubmit, configured, error, busy }: { email: string; password: string; onEmail: (v: string) => void; onPassword: (v: string) => void; onSubmit: (e: React.FormEvent) => void; configured: boolean; error: string | null; busy: boolean }) {
   return (
     <>
       <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 12, lineHeight: 1.5 }}>Master Admin signs in with the secure Firebase email/password account.</p>
       <form onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 18 }}>
-        <Input label="Email / phone" value={email} onChange={(e) => onEmail(e.target.value)} icon="user" />
+        <Input label="Email" type="email" value={email} onChange={(e) => onEmail(e.target.value)} icon="mail" placeholder="admin@ganguram.in" />
         <Input label="Password" type="password" value={password} onChange={(e) => onPassword(e.target.value)} icon="lock" />
-        <Button variant="primary" size="lg" full type="submit" iconRight={<Icon name="chevronRight" size={17} />}>Sign in to admin suite</Button>
+        {error && <ErrorNote text={error} />}
+        <Button variant="primary" size="lg" full type="submit" loading={busy} iconRight={busy ? undefined : <Icon name="chevronRight" size={17} />}>Sign in to admin suite</Button>
       </form>
       <div style={infoBox()}>
         <Icon name="info" size={14} color="var(--indigo-500)" style={{ marginTop: 1, flexShrink: 0 }} />
-        <span><strong style={{ fontWeight: 700 }}>Demo foundation</strong> — admin uses Firebase Auth{configured ? '' : '; any credentials sign you in when Firebase is not configured'}.</span>
+        <span><strong style={{ fontWeight: 700 }}>Secure admin login</strong> — admin uses Firebase Auth{configured ? ' (verified on this screen)' : '; any credentials sign you in when Firebase is not configured'}.</span>
       </div>
     </>
   );
